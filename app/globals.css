@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+:root {
+  --background: #fffaf2;
+  --foreground: #1c1917;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+::selection {
+  background: #fde68a;
+  color: #1c1917;
+}
+
+.article-content {
+  color: #292524;
+  font-size: 1.0625rem;
+  line-height: 1.9;
+}
+
+.article-content h2 {
+  color: #1c1917;
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.article-content h2.review-detail-heading {
+  border-top: 1px solid #f3d7a7;
+  margin-top: 2.4rem;
+  padding-top: 1.25rem;
+}
+
+.article-content h2.article-prelude-title {
+  margin-top: 0;
+}
+
+.article-content h3 {
+  color: #1c1917;
+  font-size: 1.08rem;
+  font-weight: 700;
+  line-height: 1.35;
+  margin-top: 1.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.article-content p {
+  margin: 1rem 0;
+}
+
+.article-content ul,
+.article-content ol {
+  margin: 1rem 0;
+  padding-left: 1.5rem;
+}
+
+.article-content li {
+  margin: 0.45rem 0;
+}
+
+.article-content blockquote {
+  border-left: 4px solid #b45309;
+  color: #57534e;
+  margin: 1.5rem 0;
+  padding-left: 1rem;
+}
+
+.article-content a {
+  color: #92400e;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.article-content strong {
+  color: #1c1917;
+}
+
+.article-content table {
+  border-collapse: collapse;
+  display: block;
+  font-size: 0.95rem;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+  width: 100%;
+}
+
+.article-content th,
+.article-content td {
+  border: 1px solid #e7e5e4;
+  padding: 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.article-content th {
+  background: #fef3c7;
+  color: #292524;
+  font-weight: 700;
+}

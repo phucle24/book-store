@@ -1,0 +1,394 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum UserRole {
+  ADMIN
+}
+
+enum BookStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ArticleType {
+  REVIEW
+  TOP_LIST
+  STORY
+  COMPARISON
+  GUIDE
+}
+
+enum ArticleStatus {
+  DRAFT
+  REVIEW
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ArticleBookRole {
+  MAIN
+  RECOMMENDED
+  ALTERNATIVE
+}
+
+enum AiGenerationType {
+  BRIEF
+  OUTLINE
+  DRAFT
+  IMPROVE
+  SEO_CHECK
+}
+
+enum ResearchRunStatus {
+  PENDING
+  RESEARCHED
+  BOOK_GENERATED
+  ARTICLE_CREATED
+  FAILED
+}
+
+enum ResearchSourceStatus {
+  USED
+  SKIPPED
+  ERROR
+}
+
+enum ResearchSourceType {
+  SEARCH_RESULT
+  FETCHED_PAGE
+  PRODUCT_PAGE
+  MANUAL_NOTE
+  MANUAL_REVIEW
+}
+
+enum KeywordIdeaStatus {
+  IDEA
+  BRIEFED
+  WRITING
+  SCHEDULED
+  PUBLISHED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String?
+  role         UserRole @default(ADMIN)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Book {
+  id                 String          @id @default(cuid())
+  title              String
+  slug               String          @unique
+  author             String
+  publisher          String?
+  description        String
+  coverImage         String?
+  shopeeAffiliateUrl String?
+  status             BookStatus      @default(ACTIVE)
+  pros               String[]
+  cons               String[]
+  keyLessons         String[]
+  suitableFor        String[]
+  notSuitableFor     String[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  categories         Category[]      @relation("BookCategories")
+  painPoints         PainPoint[]     @relation("BookPainPoints")
+  audiences          Audience[]      @relation("BookAudiences")
+  articles           ArticleBook[]
+  affiliateLinks     AffiliateLink[]
+  aiGenerations      AiGeneration[]
+  clickEvents        ClickEvent[]
+  pageViews          PageView[]
+  researchRuns       ResearchRun[]   @relation("ResearchRunBook")
+}
+
+model Category {
+  id             String           @id @default(cuid())
+  name           String
+  slug           String           @unique
+  description    String?
+  seoTitle       String?
+  seoDescription String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  articles       Article[]        @relation("ArticleCategories")
+  books          Book[]           @relation("BookCategories")
+  clusters       ContentCluster[]
+}
+
+model PainPoint {
+  id           String           @id @default(cuid())
+  name         String
+  slug         String           @unique
+  description  String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  articles     Article[]        @relation("ArticlePainPoints")
+  books        Book[]           @relation("BookPainPoints")
+  clusters     ContentCluster[]
+  keywordIdeas KeywordIdea[]
+}
+
+model Audience {
+  id           String           @id @default(cuid())
+  name         String
+  slug         String           @unique
+  description  String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  articles     Article[]        @relation("ArticleAudiences")
+  books        Book[]           @relation("BookAudiences")
+  clusters     ContentCluster[]
+  keywordIdeas KeywordIdea[]
+}
+
+model Article {
+  id                String           @id @default(cuid())
+  reviewInsightId   String?
+  clusterId         String?
+  title             String
+  slug              String           @unique
+  excerpt           String
+  content           String
+  coverImage        String?
+  type              ArticleType
+  status            ArticleStatus    @default(DRAFT)
+  seoTitle          String?
+  seoDescription    String?
+  focusKeyword      String?
+  readingTime       Int              @default(1)
+  publishedAt       DateTime?
+  scheduledAt       DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  categories        Category[]       @relation("ArticleCategories")
+  painPoints        PainPoint[]      @relation("ArticlePainPoints")
+  audiences         Audience[]       @relation("ArticleAudiences")
+  books             ArticleBook[]
+  faqs              FAQ[]
+  affiliateLinks    AffiliateLink[]
+  aiGenerations     AiGeneration[]
+  clickEvents       ClickEvent[]
+  pageViews         PageView[]
+  reviewInsight     ReviewInsight?   @relation(fields: [reviewInsightId], references: [id], onDelete: SetNull)
+  cluster           ContentCluster?  @relation("ClusterArticles", fields: [clusterId], references: [id], onDelete: SetNull)
+  pillarForClusters ContentCluster[] @relation("ClusterPillar")
+  keywordIdeas      KeywordIdea[]
+  researchRuns      ResearchRun[]    @relation("ResearchRunArticle")
+}
+
+model ContentCluster {
+  id              String        @id @default(cuid())
+  name            String
+  slug            String        @unique
+  description     String?
+  pillarArticleId String?
+  categoryId      String?
+  painPointId     String?
+  audienceId      String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  pillarArticle   Article?      @relation("ClusterPillar", fields: [pillarArticleId], references: [id], onDelete: SetNull)
+  category        Category?     @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  painPoint       PainPoint?    @relation(fields: [painPointId], references: [id], onDelete: SetNull)
+  audience        Audience?     @relation(fields: [audienceId], references: [id], onDelete: SetNull)
+  articles        Article[]     @relation("ClusterArticles")
+  keywordIdeas    KeywordIdea[]
+}
+
+model KeywordIdea {
+  id              String            @id @default(cuid())
+  keyword         String
+  intent          String
+  priority        Int               @default(2)
+  status          KeywordIdeaStatus @default(IDEA)
+  articleType     ArticleType       @default(REVIEW)
+  notes           String?
+  briefMarkdown   String?
+  outlineMarkdown String?
+  clusterId       String?
+  articleId       String?
+  painPointId     String?
+  audienceId      String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  cluster         ContentCluster?   @relation(fields: [clusterId], references: [id], onDelete: SetNull)
+  article         Article?          @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  painPoint       PainPoint?        @relation(fields: [painPointId], references: [id], onDelete: SetNull)
+  audience        Audience?         @relation(fields: [audienceId], references: [id], onDelete: SetNull)
+
+  @@index([status, priority])
+  @@index([clusterId])
+}
+
+model ReviewInsight {
+  id               String    @id @default(cuid())
+  bookTitle        String
+  author           String?
+  shopeeProductUrl String
+  affiliateUrl     String
+  productPrice     Int?
+  productRating    Float?
+  soldCount        Int?
+  rawReviews       String
+  notes            String?
+  reviewCount      Int       @default(0)
+  status           String    @default("draft")
+  positivePoints   Json?
+  negativePoints   Json?
+  buyerPersonas    Json?
+  painPoints       Json?
+  emotionalHooks   Json?
+  objections       Json?
+  purchaseReasons  Json?
+  articleAngles    Json?
+  summary          String?
+  articles         Article[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+model ResearchRun {
+  id               String            @id @default(cuid())
+  bookTitle        String
+  author           String?
+  affiliateUrl     String?
+  productUrl       String?
+  manualBookData   String?
+  sourceNotes      String?
+  rawReviews       String?
+  status           ResearchRunStatus @default(PENDING)
+  warnings         String[]
+  sourceSummary    Json?
+  confidence       Float?
+  createdBookId    String?
+  createdArticleId String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  createdBook      Book?             @relation("ResearchRunBook", fields: [createdBookId], references: [id], onDelete: SetNull)
+  createdArticle   Article?          @relation("ResearchRunArticle", fields: [createdArticleId], references: [id], onDelete: SetNull)
+  sources          ResearchSource[]
+
+  @@index([status, createdAt])
+  @@index([createdBookId])
+  @@index([createdArticleId])
+}
+
+model ResearchSource {
+  id            String               @id @default(cuid())
+  researchRunId String
+  url           String?
+  domain        String?
+  title         String?
+  sourceType    ResearchSourceType   @default(SEARCH_RESULT)
+  status        ResearchSourceStatus @default(USED)
+  summary       String?
+  facts         Json?
+  confidence    Float?
+  contentHash   String?
+  skipReason    String?
+  createdAt     DateTime             @default(now())
+  researchRun   ResearchRun          @relation(fields: [researchRunId], references: [id], onDelete: Cascade)
+
+  @@index([researchRunId])
+  @@index([domain])
+  @@index([contentHash])
+}
+
+model ArticleBook {
+  id        String          @id @default(cuid())
+  articleId String
+  bookId    String
+  role      ArticleBookRole @default(RECOMMENDED)
+  order     Int             @default(0)
+  article   Article         @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  book      Book            @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@unique([articleId, bookId, role])
+}
+
+model AffiliateLink {
+  id             String       @id @default(cuid())
+  bookId         String?
+  articleId      String?
+  label          String
+  destinationUrl String
+  trackingSlug   String       @unique
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  book           Book?        @relation(fields: [bookId], references: [id], onDelete: SetNull)
+  article        Article?     @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  clicks         ClickEvent[]
+}
+
+model ClickEvent {
+  id              String        @id @default(cuid())
+  affiliateLinkId String
+  articleId       String?
+  bookId          String?
+  userAgent       String?
+  referer         String?
+  ipHash          String?
+  createdAt       DateTime      @default(now())
+  affiliateLink   AffiliateLink @relation(fields: [affiliateLinkId], references: [id], onDelete: Cascade)
+  article         Article?      @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  book            Book?         @relation(fields: [bookId], references: [id], onDelete: SetNull)
+}
+
+model PageView {
+  id        String   @id @default(cuid())
+  articleId String?
+  bookId    String?
+  path      String
+  userAgent String?
+  referer   String?
+  ipHash    String?
+  createdAt DateTime @default(now())
+  article   Article? @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  book      Book?    @relation(fields: [bookId], references: [id], onDelete: SetNull)
+
+  @@index([articleId, createdAt])
+  @@index([bookId, createdAt])
+  @@index([path, createdAt])
+}
+
+model FAQ {
+  id        String  @id @default(cuid())
+  articleId String
+  question  String
+  answer    String
+  order     Int     @default(0)
+  article   Article @relation(fields: [articleId], references: [id], onDelete: Cascade)
+}
+
+model AiGeneration {
+  id             String           @id @default(cuid())
+  type           AiGenerationType
+  inputJson      Json
+  outputMarkdown String
+  model          String
+  articleId      String?
+  bookId         String?
+  createdAt      DateTime         @default(now())
+  article        Article?         @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  book           Book?            @relation(fields: [bookId], references: [id], onDelete: SetNull)
+}
+
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+}
