@@ -21,6 +21,10 @@ export function AffiliateDecisionCard({
 }) {
   const buyIf = compactList([...book.suitableFor, ...book.pros]).slice(0, 3);
   const waitIf = compactList([...book.notSuitableFor, ...book.cons]).slice(0, 3);
+  const bestFitReaders = compactList([
+    ...book.suitableFor,
+    ...book.keyLessons.map((lesson) => `Muốn đọc để hiểu thêm về: ${lesson}`),
+  ]).slice(0, 4);
 
   return (
     <section className="mx-auto mt-8 max-w-3xl overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-sm">
@@ -38,7 +42,22 @@ export function AffiliateDecisionCard({
         </p>
       </div>
 
-      <div className="grid gap-4 p-5 sm:p-6 md:grid-cols-2">
+      {bestFitReaders.length ? (
+        <div className="border-t border-stone-100 px-5 py-5 sm:px-6">
+          <h3 className="text-sm font-semibold text-stone-950">
+            Cuốn này hợp nhất với kiểu người đọc nào?
+          </h3>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {bestFitReaders.map((item) => (
+              <div key={item} className="rounded-2xl border border-stone-200 bg-white/80 px-3 py-2 text-sm leading-6 text-stone-700">
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="grid gap-4 border-t border-stone-100 p-5 sm:p-6 md:grid-cols-2">
         <DecisionList title="Nên mua nếu..." items={buyIf} tone="good" />
         <DecisionList title="Chưa nên mua nếu..." items={waitIf} tone="careful" />
       </div>
@@ -46,13 +65,16 @@ export function AffiliateDecisionCard({
       {readBeforeBuying.length ? (
         <div className="border-t border-stone-100 px-5 py-5 sm:px-6">
           <h3 className="text-sm font-semibold text-stone-950">
-            Nên đọc thử trước khi mua
+            Nếu còn phân vân, đọc bài này trước
           </h3>
           <div className="mt-3 grid gap-3">
             {readBeforeBuying.slice(0, 2).map((article) => (
               <Link
                 key={article.id}
                 href={`/bai-viet/${article.slug}`}
+                data-intent-event="decision_read_before_buying_clicked"
+                data-intent-target="article"
+                data-intent-meta={JSON.stringify({ articleId: article.id })}
                 className="rounded-2xl border border-stone-200 bg-stone-50 p-3 text-sm transition hover:border-amber-200 hover:bg-amber-50"
               >
                 <span className="font-semibold text-stone-950">{article.title}</span>
@@ -70,7 +92,6 @@ export function AffiliateDecisionCard({
           <AffiliateButton
             trackingSlug={trackingSlug}
             label="Xem giá trên Shopee"
-            sublabel="Đi qua link affiliate của Trạm Đọc"
             size="lg"
             fullWidth
           />

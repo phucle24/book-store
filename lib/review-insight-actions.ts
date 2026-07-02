@@ -16,6 +16,7 @@ import {
   DeepSeekConfigError,
   generateArticleFromReviewInsight,
 } from "@/lib/deepseek";
+import { articleAuthorData, resolveEditorialPersona } from "@/lib/editorial-personas";
 import { readingTimeFromMarkdown } from "@/lib/markdown";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slugify";
@@ -207,6 +208,14 @@ export async function generateArticleFromReviewInsightAction(formData: FormData)
     });
     const publishMode = textValue(formData, "publishMode");
     const isScheduled = publishMode === "scheduled";
+    const articleAuthor = articleAuthorData(
+      resolveEditorialPersona({
+        articleType: ArticleType.REVIEW,
+        painPointNames: jsonStringArray(insight.painPoints),
+        audienceNames: jsonStringArray(insight.buyerPersonas),
+        bookSignals: [insight.bookTitle, insight.summary || ""],
+      }),
+    );
     const scheduledAt = isScheduled
       ? parseVietnamDatetimeLocal(textValue(formData, "scheduledAt")) ||
         defaultVietnamScheduledDate()
@@ -223,6 +232,7 @@ export async function generateArticleFromReviewInsightAction(formData: FormData)
         seoTitle: output.seoTitle,
         seoDescription: output.seoDescription,
         focusKeyword: insight.bookTitle,
+        ...articleAuthor,
         readingTime: readingTimeFromMarkdown(output.contentMarkdown),
         scheduledAt,
         books: {

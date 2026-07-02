@@ -76,6 +76,7 @@ function mapResearchRun(run: ResearchRunWithRelations) {
     rawReviews: run.rawReviews,
     status: run.status,
     warnings: run.warnings,
+    sourceSummary: run.sourceSummary,
     confidence: run.confidence,
     createdAt: run.createdAt.toISOString(),
     createdBook: run.createdBook,

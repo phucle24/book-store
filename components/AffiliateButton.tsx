@@ -24,6 +24,9 @@ export function AffiliateButton({
   return (
     <Link
       href={`/go/${trackingSlug}`}
+      data-intent-event="cta_clicked"
+      data-intent-target="affiliate_button"
+      data-intent-meta={JSON.stringify({ trackingSlug })}
       className={`group inline-flex items-center justify-center bg-gradient-to-r from-[#ee4d2d] via-[#f06a2f] to-amber-700 font-semibold text-white shadow-[0_12px_28px_rgba(180,83,9,0.22)] ring-1 ring-white/40 transition hover:-translate-y-0.5 hover:from-stone-950 hover:via-stone-900 hover:to-amber-900 hover:shadow-[0_16px_34px_rgba(28,25,23,0.22)] focus:outline-none focus:ring-4 focus:ring-amber-200 ${
         fullWidth ? "w-full" : ""
       } ${sizeClass}`}

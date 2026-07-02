@@ -1,15 +1,20 @@
 import { ArticleBookRole, ArticleType, type ArticleStatus } from "@prisma/client";
+import { scoreByKeywords } from "@/lib/pain-journey";
 
-type RelationItem = { id?: string };
+type RelationItem = { id?: string; name?: string | null; slug?: string | null };
 type BookRelation = { role?: ArticleBookRole | string };
 type ContentQualityArticle = {
   title?: string | null;
+  excerpt?: string | null;
   type?: ArticleType | string | null;
   status?: ArticleStatus | string | null;
   content?: string | null;
   seoTitle?: string | null;
   seoDescription?: string | null;
   focusKeyword?: string | null;
+  authorName?: string | null;
+  authorSlug?: string | null;
+  voiceTone?: string | null;
   reviewInsightId?: string | null;
   clusterId?: string | null;
   faqs?: RelationItem[];
@@ -41,6 +46,15 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
       content,
     );
   const contentLower = content.toLocaleLowerCase("vi");
+  const introText = firstWords([article?.title || "", article?.excerpt || "", content].join("\n"), 200);
+  const painSignals =
+    article?.painPoints?.flatMap((item) => [item.name || "", item.slug || ""]).filter(Boolean) || [];
+  const hasPainHook = !painSignals.length || scoreByKeywords(introText, painSignals) > 0;
+  const hasDecisionSection =
+    contentLower.includes("nên mua nếu") ||
+    contentLower.includes("chưa nên mua nếu") ||
+    (contentLower.includes("ai nên đọc") &&
+      (contentLower.includes("ai không nên đọc") || contentLower.includes("ai không phù hợp")));
 
   const checks: ContentQualityCheck[] = [
     {
@@ -57,6 +71,12 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
       label: "Có focus keyword",
       ok: Boolean(article?.focusKeyword?.trim()),
       severity: "warning",
+    },
+    {
+      label: "Có bút danh biên tập",
+      ok: Boolean(article?.authorName?.trim() && article?.authorSlug?.trim()),
+      severity: "warning",
+      meta: article?.authorName || "Chưa có",
     },
     {
       label: "Có ít nhất 1 pain point",
@@ -88,6 +108,12 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
       ok: wordCount >= minimumWords,
       severity: "required",
       meta: content ? `${wordCount} từ` : "Chưa có nội dung",
+    },
+    {
+      label: "Gọi đúng nỗi đau trong 200 chữ đầu",
+      ok: hasPainHook,
+      severity: "warning",
+      meta: painSignals.length ? painSignals.slice(0, 2).join(", ") : "Chưa có pain point",
     },
     {
       label: "Có cấu trúc heading đủ để scan",
@@ -141,6 +167,11 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
       severity: "warning",
     },
     {
+      label: "Có decision section trước CTA",
+      ok: hasDecisionSection || type === ArticleType.TOP_LIST,
+      severity: "warning",
+    },
+    {
       label: "Có phần điểm hạn chế",
       ok: contentLower.includes("điểm hạn chế") || contentLower.includes("điểm cần cân nhắc"),
       severity: "warning",
@@ -148,6 +179,12 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
     {
       label: "Có internal link trong markdown",
       ok: internalLinkCount > 0,
+      severity: "warning",
+      meta: `${internalLinkCount} link`,
+    },
+    {
+      label: "Có ít nhất 2 internal links theo journey",
+      ok: internalLinkCount >= 2,
       severity: "warning",
       meta: `${internalLinkCount} link`,
     },
@@ -211,4 +248,14 @@ function countHeadings(content: string) {
 function countInternalLinks(content: string) {
   const matches = content.match(/\]\(\/(bai-viet|sach|noi-dau|chu-de|doi-tuong)\//g);
   return matches?.length || 0;
+}
+
+function firstWords(content: string, count: number) {
+  return content
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[#>*_`~[\]()|]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, count)
+    .join(" ");
 }

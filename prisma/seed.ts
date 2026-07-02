@@ -6,6 +6,7 @@ import {
   type Book,
   PrismaClient,
 } from "@prisma/client";
+import { articleAuthorData, resolveEditorialPersona } from "../lib/editorial-personas";
 import { readingTimeFromMarkdown } from "../lib/markdown";
 import { slugify } from "../lib/slugify";
 
@@ -845,6 +846,15 @@ async function main() {
       painPointLabels[seed.painSlugs[0]] || seed.painSlugs[0].replace(/-/g, " "),
       seed.title,
     );
+    const author = articleAuthorData(
+      resolveEditorialPersona({
+        articleType: seed.type,
+        categoryNames: seed.categorySlugs,
+        painPointNames: seed.painSlugs,
+        audienceNames: seed.audienceSlugs,
+        bookSignals: [seed.title, seed.focusKeyword, seed.book, ...seed.relatedBooks],
+      }),
+    );
     const article = await prisma.article.upsert({
       where: { slug },
       update: {
@@ -856,6 +866,7 @@ async function main() {
         seoTitle: seed.seoTitle,
         seoDescription: seed.seoDescription,
         focusKeyword: seed.focusKeyword,
+        ...author,
         readingTime: readingTimeFromMarkdown(content),
         publishedAt: new Date(),
         categories: { set: [], connect: seed.categorySlugs.map((item) => ({ slug: item })) },
@@ -872,6 +883,7 @@ async function main() {
         seoTitle: seed.seoTitle,
         seoDescription: seed.seoDescription,
         focusKeyword: seed.focusKeyword,
+        ...author,
         readingTime: readingTimeFromMarkdown(content),
         publishedAt: new Date(),
         categories: { connect: seed.categorySlugs.map((item) => ({ slug: item })) },

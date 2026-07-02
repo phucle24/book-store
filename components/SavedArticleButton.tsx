@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useSyncExternalStore } from "react";
+import { trackIntentEvent } from "@/components/IntentEventTracker";
 
 export type SavedArticleItem = {
   id: string;
@@ -31,6 +32,13 @@ export function SavedArticleButton({ article }: { article: SavedArticleItem }) {
       : [{ ...article, savedAt: new Date().toISOString() }, ...current].slice(0, 50);
 
     writeSavedArticles(next);
+    if (!exists) {
+      trackIntentEvent({
+        type: "saved_article",
+        articleId: article.id,
+        metadata: { slug: article.slug, tags: article.tags || [] },
+      });
+    }
   }
 
   return (

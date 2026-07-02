@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { ArticleStatus, BookStatus } from "@prisma/client";
 import { ArticleCard } from "@/components/ArticleCard";
 import { ClusterLinks } from "@/components/ClusterLinks";
+import { PainJourneyLanding } from "@/components/PainJourneyBlock";
 import { TaxonomySeoIntro } from "@/components/TaxonomySeoIntro";
 import {
   TaxonomyContentSections,
@@ -78,6 +79,8 @@ export default async function PainPointPage({
         name={painPoint.name}
         description={painPoint.description}
       />
+
+      <PainJourneyLanding painPoint={painPoint} articles={articles} books={books} />
 
       <TaxonomyReadingGuide
         name={painPoint.name}

@@ -27,6 +27,9 @@ export function ArticleCard({ article }: { article: ArticleCardData }) {
       <p className="mt-3 line-clamp-3 text-sm leading-7 text-stone-600">
         {article.excerpt}
       </p>
+      <p className="mt-4 text-xs font-medium text-stone-500">
+        {article.authorName ? `Bởi ${article.authorName}` : "Bởi Ban biên tập Trạm Đọc"}
+      </p>
       <div className="mt-5 flex items-center justify-between text-sm text-stone-500">
         <span>{article.readingTime} phút đọc</span>
         <Link href={`/bai-viet/${article.slug}`} className="font-medium text-stone-950">

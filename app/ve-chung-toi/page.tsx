@@ -26,6 +26,12 @@ export default function AboutPage() {
           hoặc kiểm tra SEO, nhưng cần được biên tập trước khi xuất bản.
         </p>
         <p>
+          Một số bài dùng bút danh biên tập như Linh An, Minh Quân, An Nhiên
+          hoặc Hà My để giữ giọng viết nhất quán theo từng nhóm nội dung. Đây
+          là bút danh của hệ biên tập Trạm Đọc Một Chút, không phải hồ sơ cá
+          nhân ngoài đời.
+        </p>
+        <p>
           Chúng tôi không cam kết một cuốn sách sẽ thay đổi cuộc đời người đọc.
           Một cuốn sách tốt chỉ nên là điểm tựa để bạn suy nghĩ rõ hơn và hành
           động tỉnh táo hơn.

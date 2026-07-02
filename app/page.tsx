@@ -77,6 +77,22 @@ export default async function HomePage() {
             <div className="mt-8 hidden max-w-2xl md:block">
               <SearchBar />
             </div>
+            <form action="/tim-kiem" className="mt-4 max-w-2xl rounded-3xl border border-amber-100 bg-white p-3 shadow-sm">
+              <input type="hidden" name="mode" value="pain" />
+              <label className="block px-2 pb-2 text-xs font-semibold uppercase tracking-[0.16em] text-amber-800">
+                Mô tả tình trạng của bạn
+              </label>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  name="q"
+                  placeholder="VD: tôi hay trì hoãn, biết phải làm nhưng không bắt đầu"
+                  className="min-w-0 flex-1 rounded-2xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-900 outline-none transition focus:border-amber-700 focus:ring-4 focus:ring-amber-100"
+                />
+                <button className="rounded-2xl bg-amber-800 px-5 py-3 text-sm font-semibold text-white transition hover:bg-stone-950">
+                  Gợi ý hướng đọc
+                </button>
+              </div>
+            </form>
             <div className="mt-5 flex flex-wrap gap-3">
               <Link
                 href="/bat-dau"

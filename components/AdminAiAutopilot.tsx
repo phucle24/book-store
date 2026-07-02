@@ -3,6 +3,7 @@ import {
   improveAutopilotArticleAction,
   runAiAutopilotAction,
 } from "@/lib/ai-autopilot-actions";
+import { VOICE_TONE_AUTO, voiceToneProfiles } from "@/lib/voice-tones";
 
 type Option = {
   id: string;
@@ -32,6 +33,7 @@ type ResearchRunView = {
   rawReviews?: string | null;
   status: string;
   warnings: string[];
+  sourceSummary?: unknown;
   confidence?: number | null;
   createdAt: string;
   createdBook?: { title: string; slug: string } | null;
@@ -117,11 +119,7 @@ export function AdminAiAutopilot({
             <SelectField label="Category" name="categoryId" options={categories} />
             <SelectField label="Pain point" name="painPointId" options={painPoints} />
             <SelectField label="Audience" name="audienceId" options={audiences} />
-            <TextField
-              label="Giọng văn"
-              name="tone"
-              defaultValue="ấm, từng trải, không quảng cáo"
-            />
+            <ToneSelect />
           </div>
 
           <TextareaField
@@ -187,6 +185,7 @@ function ResearchRunPanel({ run }: { run: ResearchRunView | null }) {
 
   const used = run.sources.filter((source) => source.status === "USED");
   const skipped = run.sources.filter((source) => source.status !== "USED");
+  const painBrief = readPainBrief(run.sourceSummary);
 
   return (
     <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
@@ -205,6 +204,22 @@ function ResearchRunPanel({ run }: { run: ResearchRunView | null }) {
               <li key={warning}>{warning}</li>
             ))}
           </ul>
+        </div>
+      ) : null}
+
+      {painBrief ? (
+        <div className="mt-4 rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3">
+          <p className="text-sm font-semibold text-emerald-950">Pain Brief</p>
+          <p className="mt-2 text-sm leading-6 text-emerald-900">
+            <span className="font-semibold">Inner voice: </span>
+            {painBrief.readerInnerVoice}
+          </p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <BriefList title="Symptoms" items={painBrief.symptoms} />
+            <BriefList title="Objections" items={painBrief.purchaseObjections} />
+            <BriefList title="Why fits" items={painBrief.whyThisBookFits} />
+            <BriefList title="May not fit" items={painBrief.whyThisBookMayNotFit} />
+          </div>
         </div>
       ) : null}
 
@@ -288,6 +303,52 @@ function ResearchRunPanel({ run }: { run: ResearchRunView | null }) {
       </div>
     </div>
   );
+}
+
+function BriefList({ title, items }: { title: string; items?: string[] }) {
+  const visibleItems = items?.filter(Boolean).slice(0, 4) || [];
+  if (!visibleItems.length) return null;
+
+  return (
+    <div className="rounded-2xl bg-white/80 p-3">
+      <p className="text-xs font-semibold uppercase tracking-[0.12em] text-emerald-800">
+        {title}
+      </p>
+      <ul className="mt-2 space-y-1 text-xs leading-5 text-stone-700">
+        {visibleItems.map((item) => (
+          <li key={item}>• {item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function readPainBrief(sourceSummary: unknown) {
+  if (!sourceSummary || typeof sourceSummary !== "object") return null;
+  const painBrief = (sourceSummary as { painBrief?: unknown }).painBrief;
+  if (!painBrief || typeof painBrief !== "object") return null;
+  const value = painBrief as {
+    readerInnerVoice?: unknown;
+    symptoms?: unknown;
+    purchaseObjections?: unknown;
+    whyThisBookFits?: unknown;
+    whyThisBookMayNotFit?: unknown;
+  };
+
+  return {
+    readerInnerVoice:
+      typeof value.readerInnerVoice === "string" ? value.readerInnerVoice : "",
+    symptoms: stringArray(value.symptoms),
+    purchaseObjections: stringArray(value.purchaseObjections),
+    whyThisBookFits: stringArray(value.whyThisBookFits),
+    whyThisBookMayNotFit: stringArray(value.whyThisBookMayNotFit),
+  };
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((item) => (typeof item === "string" ? item : "")).filter(Boolean)
+    : [];
 }
 
 function RecentRuns({
@@ -382,6 +443,38 @@ function SelectField({
           </option>
         ))}
       </select>
+    </label>
+  );
+}
+
+function ToneSelect() {
+  return (
+    <label className="block md:col-span-2">
+      <span className="text-sm font-medium text-stone-700">Tone giọng</span>
+      <select
+        name="tone"
+        defaultValue={VOICE_TONE_AUTO}
+        className="mt-2 w-full rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm outline-none focus:border-amber-700 focus:ring-4 focus:ring-amber-100"
+      >
+        {voiceToneProfiles.map((profile) => (
+          <option key={profile.id} value={profile.id}>
+            {profile.name} - {profile.shortDescription}
+          </option>
+        ))}
+      </select>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {voiceToneProfiles
+          .filter((profile) => profile.id !== VOICE_TONE_AUTO)
+          .map((profile) => (
+            <p
+              key={profile.id}
+              className="rounded-2xl border border-stone-200 bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-600"
+            >
+              <span className="font-semibold text-stone-800">{profile.name}:</span>{" "}
+              {profile.shortDescription}
+            </p>
+          ))}
+      </div>
     </label>
   );
 }

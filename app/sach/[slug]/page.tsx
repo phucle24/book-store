@@ -3,8 +3,10 @@ import { notFound } from "next/navigation";
 import { ArticleStatus, BookStatus } from "@prisma/client";
 import { AffiliateButton } from "@/components/AffiliateButton";
 import { ArticleCard } from "@/components/ArticleCard";
+import { BookPainFitBlock } from "@/components/BookPainFitBlock";
 import { BookCard } from "@/components/BookCard";
 import { DisclosureBox } from "@/components/DisclosureBox";
+import { IntentEventTracker } from "@/components/IntentEventTracker";
 import { trackPageView } from "@/lib/page-view";
 import { prisma } from "@/lib/prisma";
 import { pageMetadata, siteUrl } from "@/lib/seo";
@@ -90,6 +92,10 @@ export default async function BookDetailPage({
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+      <IntentEventTracker
+        bookId={book.id}
+        painPointId={book.painPoints[0]?.id}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -127,12 +133,10 @@ export default async function BookDetailPage({
             <p className="mt-1 text-sm text-stone-500">Nhà xuất bản: {book.publisher}</p>
           ) : null}
           <p className="mt-6 text-lg leading-8 text-stone-700">{book.description}</p>
-          <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-            <AffiliateButton trackingSlug={trackingSlug} />
-            <DisclosureBox />
-          </div>
         </div>
       </section>
+
+      <BookPainFitBlock book={book} />
 
       <section className="mt-12 grid gap-5 md:grid-cols-2">
         <InfoList title="Đối tượng phù hợp" items={book.audiences.map((item) => item.name)} />
@@ -141,6 +145,30 @@ export default async function BookDetailPage({
         <InfoList title="Điểm hạn chế" items={book.cons} />
         <InfoList title="Bài học chính" items={book.keyLessons} />
         <InfoList title="Không phù hợp nếu bạn..." items={book.notSuitableFor} />
+      </section>
+
+      <section
+        data-cta-visible-target
+        className="mt-10 rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6"
+      >
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">
+          Sau khi cân nhắc
+        </p>
+        <h2 className="mt-2 text-xl font-semibold text-stone-950">
+          Nếu cuốn này đúng với giai đoạn của bạn
+        </h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-700">
+          Bạn có thể xem giá như một bước kiểm tra thêm. Hãy đọc phần phù hợp và
+          điểm hạn chế trước, rồi mới quyết định.
+        </p>
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
+          <AffiliateButton
+            trackingSlug={trackingSlug}
+            label="Xem sách trên Shopee"
+            size="lg"
+          />
+          <DisclosureBox />
+        </div>
       </section>
 
       <section className="mt-14">

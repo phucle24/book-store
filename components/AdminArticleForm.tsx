@@ -10,6 +10,7 @@ import type {
 } from "@prisma/client";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { getArticleQualitySummary } from "@/lib/content-quality";
+import { editorialPersonas } from "@/lib/editorial-personas";
 
 type ArticleWithRelations = Partial<Article> & {
   categories?: Category[];
@@ -113,6 +114,24 @@ export function AdminArticleForm({
             type="datetime-local"
             defaultValue={scheduledDate}
           />
+          <label className="block">
+            <span className="text-sm font-medium text-stone-700">Bút danh hiển thị</span>
+            <select
+              name="authorSlug"
+              defaultValue={article?.authorSlug || ""}
+              className="mt-2 w-full rounded-2xl border border-stone-300 bg-white px-4 py-3 text-sm outline-none focus:border-amber-700 focus:ring-4 focus:ring-amber-100"
+            >
+              <option value="">Tự chọn theo tone/nội dung</option>
+              {editorialPersonas.map((persona) => (
+                <option key={persona.slug} value={persona.slug}>
+                  {persona.name} · {persona.label}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs leading-5 text-stone-500">
+              Đây là bút danh biên tập của website, không phải hồ sơ cá nhân ngoài đời.
+            </span>
+          </label>
           <label className="block md:col-span-2">
             <span className="text-sm font-medium text-stone-700">Content cluster</span>
             <select

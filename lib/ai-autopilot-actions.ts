@@ -20,10 +20,12 @@ import {
   generateAutopilotBookData,
   improveDraft,
 } from "@/lib/deepseek";
+import { articleAuthorData, resolveEditorialPersona } from "@/lib/editorial-personas";
 import { readingTimeFromMarkdown } from "@/lib/markdown";
 import { prisma } from "@/lib/prisma";
 import { ResearchConfigError, researchBookSources } from "@/lib/research";
 import { slugify } from "@/lib/slugify";
+import { resolveVoiceTone } from "@/lib/voice-tones";
 
 const optionalUrl = z
   .string()
@@ -162,6 +164,7 @@ export async function runAiAutopilotAction(formData: FormData) {
 
     const run = await ensureResearchRun(input);
     const { extraction, bookData } = await ensureBookData(run.id, input);
+    const initialPainBrief = buildPainBrief(input, extraction, bookData);
     const book = await upsertBookFromAutopilot(input, bookData);
 
     await prisma.researchRun.update({
@@ -169,7 +172,7 @@ export async function runAiAutopilotAction(formData: FormData) {
       data: {
         status: "BOOK_GENERATED",
         createdBookId: book.id,
-        sourceSummary: mergeSourceSummary(extraction, bookData),
+        sourceSummary: mergeSourceSummary(extraction, bookData, undefined, undefined, initialPainBrief),
         warnings: uniqueStrings([...run.warnings, ...bookData.warnings]),
         confidence: combinedConfidence(extraction.confidence, bookData.confidence),
       },
@@ -187,7 +190,23 @@ export async function runAiAutopilotAction(formData: FormData) {
     }
 
     const reviewInsight = await maybeCreateReviewInsight(input);
+    const painBrief = buildPainBrief(input, extraction, bookData, reviewInsight);
     const articleOutput = await generateArticlePayload(input, extraction, bookData, reviewInsight);
+    const articleAuthor = articleAuthorData(
+      resolveEditorialPersona({
+        tone: input.tone,
+        articleType: ArticleType.REVIEW,
+        categoryNames: bookData.categoryNames,
+        painPointNames: bookData.painPointNames,
+        audienceNames: bookData.audienceNames,
+        bookSignals: [
+          input.bookTitle,
+          input.focusKeyword || "",
+          ...bookData.keyLessons,
+          ...bookData.suitableFor,
+        ],
+      }),
+    );
     const taxonomy = await taxonomyConnectData(input, bookData);
     const quality = articleQualityGate({
       intent: input.intent,
@@ -217,6 +236,7 @@ export async function runAiAutopilotAction(formData: FormData) {
         seoTitle: articleOutput.seoTitle,
         seoDescription: articleOutput.seoDescription,
         focusKeyword: articleOutput.focusKeyword || input.focusKeyword || input.bookTitle,
+        ...articleAuthor,
         readingTime: readingTimeFromMarkdown(articleOutput.contentMarkdown),
         publishedAt: status === ArticleStatus.PUBLISHED ? new Date() : null,
         scheduledAt,
@@ -259,6 +279,7 @@ export async function runAiAutopilotAction(formData: FormData) {
           researchRunId: run.id,
           extraction,
           bookData,
+          painBrief,
           qualityWarnings: quality.warnings,
         } as Prisma.InputJsonValue,
         outputMarkdown: articleOutput.contentMarkdown,
@@ -274,7 +295,7 @@ export async function runAiAutopilotAction(formData: FormData) {
         status: "ARTICLE_CREATED",
         createdBookId: book.id,
         createdArticleId: article.id,
-        sourceSummary: mergeSourceSummary(extraction, bookData, articleOutput, quality),
+        sourceSummary: mergeSourceSummary(extraction, bookData, articleOutput, quality, painBrief),
         warnings: uniqueStrings([
           ...run.warnings,
           ...extraction.warnings,
@@ -365,8 +386,24 @@ export async function improveAutopilotArticleAction(formData: FormData) {
       return `- ${label}: ${source.summary || "Không có summary."}`;
     })
     .join("\n");
+  const resolvedImproveTone = resolveVoiceTone({
+    tone: null,
+    categoryNames: [],
+    painPointNames: article.painPoints.map((item) => item.name),
+    audienceNames: article.audiences.map((item) => item.name),
+    bookSignals: [
+      article.title,
+      article.focusKeyword || "",
+      mainBook?.title || "",
+      ...(mainBook?.keyLessons || []),
+      ...(mainBook?.suitableFor || []),
+    ],
+  });
   const extraNotes = [
     "Đây là bài do AI Autopilot tạo. Hãy tự biên tập lại trực tiếp để bài đọc tự nhiên hơn, giàu góc nhìn hơn và ít template hơn.",
+    "Loại bỏ ngôi 'tôi' hoặc trải nghiệm cá nhân nếu không có verifiedRead=true. Dùng giọng biên tập/gợi mở thay thế.",
+    "Nếu content đang có section FAQ trong markdown, hãy bỏ section đó khỏi markdown vì website đã render FAQ riêng.",
+    "Không quote trực tiếp từ sách, tác giả, review hoặc nguồn research; chỉ diễn giải bằng lời riêng.",
     "Không chèn CTA hoặc affiliate link trong markdown; layout website đã có CTA cuối bài.",
     "Giữ các section chính: Sách nói về gì, Review chi tiết, Ai nên đọc, Ai không nên đọc, Điểm hạn chế, Nên đọc cuốn này như thế nào.",
     "Không quote nguồn hoặc review người mua. Chỉ dùng nguồn làm nền insight.",
@@ -399,7 +436,7 @@ export async function improveAutopilotArticleAction(formData: FormData) {
       painPoint: article.painPoints[0] || null,
       audience: article.audiences[0] || null,
       focusKeyword: article.focusKeyword || article.title,
-      tone: "ấm, từng trải, có góc nhìn người đọc, không quảng cáo",
+      tone: resolvedImproveTone,
       extraNotes,
       verifiedRead: false,
       draft: article.content,
@@ -591,6 +628,28 @@ async function generateArticlePayload(
       ? prisma.audience.findUnique({ where: { id: input.audienceId }, select: { name: true } })
       : null,
   ]);
+  const resolvedTone = resolveVoiceTone({
+    tone: input.tone,
+    categoryNames: [
+      category?.name,
+      ...bookData.categoryNames,
+    ].filter((item): item is string => Boolean(item)),
+    painPointNames: [
+      painPoint?.name,
+      ...bookData.painPointNames,
+    ].filter((item): item is string => Boolean(item)),
+    audienceNames: [
+      audience?.name,
+      ...bookData.audienceNames,
+    ].filter((item): item is string => Boolean(item)),
+    bookSignals: [
+      input.bookTitle,
+      input.focusKeyword || "",
+      ...bookData.keyLessons,
+      ...bookData.suitableFor,
+      ...bookData.cons,
+    ],
+  });
 
   const raw = await generateAutopilotArticle({
     bookTitle: input.bookTitle,
@@ -608,10 +667,13 @@ async function generateArticlePayload(
     categoryName: category?.name,
     painPointName: painPoint?.name,
     audienceName: audience?.name,
-    tone: input.tone,
+    tone: resolvedTone,
   });
 
-  const article = articleOutputSchema.parse(parseJsonOutput(raw));
+  const article = parseArticleOutput(raw, input.bookTitle);
+  if (!article.faqs.length) {
+    article.faqs = fallbackFaqs(input.bookTitle, input.focusKeyword || input.bookTitle);
+  }
   return article;
 }
 
@@ -788,9 +850,11 @@ function mergeSourceSummary(
   bookData?: BookData,
   article?: ArticleOutput,
   quality?: ReturnType<typeof articleQualityGate>,
+  painBrief?: ReturnType<typeof buildPainBrief>,
 ) {
   const summary: Record<string, unknown> = { extraction };
   if (bookData) summary.bookData = bookData;
+  if (painBrief) summary.painBrief = painBrief;
   if (article) {
     summary.article = {
       title: article.title,
@@ -802,6 +866,82 @@ function mergeSourceSummary(
   }
   if (quality) summary.quality = quality;
   return summary as Prisma.InputJsonValue;
+}
+
+function buildPainBrief(
+  input: AutopilotForm,
+  extraction: Extraction,
+  bookData: BookData,
+  reviewInsight: Awaited<ReturnType<typeof maybeCreateReviewInsight>> = null,
+) {
+  const insights = plainObject(extraction.insights);
+  const review = reviewInsightForPrompt(reviewInsight);
+  const reviewPainPoints = jsonStringArray(review?.painPoints);
+  const reviewObjections = jsonStringArray(review?.objections);
+  const reviewPersonas = jsonStringArray(review?.buyerPersonas);
+  const reviewHooks = jsonStringArray(review?.emotionalHooks);
+
+  const readerInnerVoice = firstNonEmpty([
+    stringField(insights, "readerInnerVoice"),
+    stringField(insights, "innerVoice"),
+    reviewHooks[0],
+    input.focusKeyword
+      ? `Mình đang tìm một cuốn sách thật sự giúp được chuyện ${input.focusKeyword.toLowerCase()}.`
+      : `Mình nghe nhiều về ${input.bookTitle}, nhưng không chắc nó có hợp với giai đoạn của mình không.`,
+  ]);
+  const symptoms = uniqueStrings([
+    ...bookData.painPointNames,
+    ...jsonStringArray(insights.symptoms),
+    ...jsonStringArray(insights.painPoints),
+    ...reviewPainPoints,
+    ...(input.focusKeyword ? [input.focusKeyword] : []),
+  ]).slice(0, 6);
+  const hiddenFear = firstNonEmpty([
+    stringField(insights, "hiddenFear"),
+    stringField(insights, "fear"),
+    reviewObjections[0] ? `Sợ mua xong nhưng không đọc được, hoặc sách không đúng điều mình đang cần.` : "",
+    "Sợ lại mua thêm một cuốn sách vì cảm hứng nhất thời, rồi vẫn không thay đổi được nhịp sống hiện tại.",
+  ]);
+  const purchaseObjections = uniqueStrings([
+    ...bookData.cons,
+    ...bookData.notSuitableFor,
+    ...jsonStringArray(insights.objections),
+    ...reviewObjections,
+  ]).slice(0, 6);
+  const whyThisBookFits = uniqueStrings([
+    ...bookData.pros,
+    ...bookData.suitableFor,
+    ...bookData.keyLessons,
+    ...jsonStringArray(insights.purchaseReasons),
+    ...jsonStringArray(review?.purchaseReasons),
+  ]).slice(0, 6);
+  const whyThisBookMayNotFit = uniqueStrings([
+    ...bookData.cons,
+    ...bookData.notSuitableFor,
+    ...jsonStringArray(insights.negativePoints),
+    ...jsonStringArray(review?.negativePoints),
+  ]).slice(0, 5);
+  const hooks = uniqueStrings([
+    `Có những cuốn sách người ta không tìm đến vì tò mò, mà vì đang cần gọi tên một điều trong lòng.`,
+    `${input.bookTitle} đáng được đọc chậm, nhất là khi bạn không muốn thêm một lời khuyên ồn ào.`,
+    readerInnerVoice
+      ? `Nếu trong đầu bạn có câu: “${readerInnerVoice.replace(/[“”"]/g, "")}”, bài này nên bắt đầu từ chính cảm giác đó.`
+      : "",
+    ...reviewHooks,
+    ...jsonStringArray(insights.articleAngles),
+  ]).slice(0, 4);
+
+  return {
+    readerInnerVoice,
+    symptoms,
+    hiddenFear,
+    purchaseObjections,
+    whyThisBookFits,
+    whyThisBookMayNotFit,
+    hooks,
+    personas: uniqueStrings([...bookData.audienceNames, ...reviewPersonas]).slice(0, 5),
+    adminCheck: extraction.adminCheck,
+  };
 }
 
 function reviewInsightForPrompt(
@@ -869,6 +1009,116 @@ function parseJsonOutput(output: string) {
     .replace(/```$/i, "")
     .trim();
   return JSON.parse(cleaned);
+}
+
+function parseArticleOutput(output: string, bookTitle: string) {
+  try {
+    return articleOutputSchema.parse(parseJsonOutput(output));
+  } catch {
+    const cleaned = stripMarkdownFence(output);
+    const content = extractLooseContentMarkdown(cleaned);
+    const fallback = {
+      title:
+        extractLooseStringField(cleaned, "title") ||
+        `Review ${bookTitle}: nên đọc thế nào để không biến nó thành áp lực`,
+      slug: extractLooseStringField(cleaned, "slug") || "",
+      excerpt:
+        extractLooseStringField(cleaned, "excerpt") ||
+        summarizeMarkdown(content || `Review ${bookTitle} theo góc nhìn người đọc.`),
+      seoTitle:
+        extractLooseStringField(cleaned, "seoTitle") ||
+        `Review ${bookTitle}: có phù hợp với bạn không?`,
+      seoDescription:
+        extractLooseStringField(cleaned, "seoDescription") ||
+        summarizeMarkdown(content || `Review ${bookTitle} theo góc nhìn người đọc.`),
+      focusKeyword: extractLooseStringField(cleaned, "focusKeyword") || bookTitle,
+      contentMarkdown:
+        content ||
+        `## Sách nói về gì\n\n${bookTitle} cần được admin kiểm tra lại vì AI trả output chưa đúng JSON.\n\n## Nên đọc cuốn này như thế nào\n\nHãy đọc chậm và đối chiếu với nhu cầu thật của bạn.`,
+      faqs: extractLooseFaqs(cleaned),
+      warnings: [
+        "AI trả về JSON chưa hợp lệ; hệ thống đã fallback parse để giữ bài viết.",
+      ],
+      confidence: 0.45,
+    };
+
+    return articleOutputSchema.parse(fallback);
+  }
+}
+
+function stripMarkdownFence(output: string) {
+  return output
+    .trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+}
+
+function extractLooseStringField(jsonLike: string, field: string) {
+  const match = jsonLike.match(new RegExp(`"${field}"\\s*:\\s*"([^"\\n\\r]*)"`));
+  return match?.[1]?.trim() || "";
+}
+
+function extractLooseContentMarkdown(jsonLike: string) {
+  const startMatch = /"contentMarkdown"\s*:\s*"/.exec(jsonLike);
+  if (!startMatch) return "";
+
+  const valueStart = startMatch.index + startMatch[0].length;
+  const rest = jsonLike.slice(valueStart);
+  const delimiterMatch =
+    /"\s*,\s*"faqs"\s*:/.exec(rest) ||
+    /"\s*,\s*"warnings"\s*:/.exec(rest) ||
+    /"\s*,\s*"confidence"\s*:/.exec(rest);
+  const valueEnd = delimiterMatch ? valueStart + delimiterMatch.index : jsonLike.lastIndexOf('"');
+  if (valueEnd <= valueStart) return "";
+
+  return jsonLike
+    .slice(valueStart, valueEnd)
+    .replace(/\\n/g, "\n")
+    .replace(/\\"/g, '"')
+    .trim();
+}
+
+function extractLooseFaqs(jsonLike: string) {
+  const faqQuestionMatches = [...jsonLike.matchAll(/"question"\s*:\s*"([^"\n\r]+)"/g)];
+  const faqAnswerMatches = [...jsonLike.matchAll(/"answer"\s*:\s*"([^"\n\r]+)"/g)];
+
+  return faqQuestionMatches
+    .map((questionMatch, index) => ({
+      question: questionMatch[1].trim(),
+      answer: faqAnswerMatches[index]?.[1]?.trim() || "Câu trả lời cần admin rà soát thêm.",
+    }))
+    .filter((item) => item.question && item.answer)
+    .slice(0, 6);
+}
+
+function fallbackFaqs(bookTitle: string, focusKeyword: string) {
+  return [
+    {
+      question: `${bookTitle} phù hợp với ai?`,
+      answer: `Cuốn sách phù hợp với người đang quan tâm đến ${focusKeyword.toLowerCase()} và muốn có một cách đọc thực tế hơn, không chỉ đọc để lấy cảm hứng nhất thời.`,
+    },
+    {
+      question: `Có nên mua ${bookTitle} ngay không?`,
+      answer:
+        "Bạn nên mua nếu thật sự muốn dành thời gian đọc và thử áp dụng một vài ý nhỏ. Nếu chỉ muốn một lời hứa thay đổi nhanh, nên cân nhắc thêm.",
+    },
+    {
+      question: `Nên đọc ${bookTitle} như thế nào?`,
+      answer:
+        "Nên đọc chậm, ghi lại một vài ý chạm đúng vấn đề hiện tại và thử áp dụng bằng một hành động nhỏ trước khi đọc tiếp.",
+    },
+  ];
+}
+
+function summarizeMarkdown(markdown: string) {
+  return markdown
+    .replace(/^#+\s+/gm, "")
+    .replace(/[*_>`~-]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
 }
 
 async function uniqueArticleSlug(input: string) {
@@ -1053,6 +1303,26 @@ function combinedConfidence(...values: Array<number | null | undefined>) {
 
 function uniqueStrings(items: Array<string | null | undefined>) {
   return [...new Set(items.map((item) => item?.trim()).filter(Boolean) as string[])];
+}
+
+function plainObject(value: unknown) {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringField(record: Record<string, unknown>, key: string) {
+  const value = record[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function jsonStringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
+}
+
+function firstNonEmpty(items: string[]) {
+  return items.map((item) => item.trim()).find(Boolean) || "";
 }
 
 function revalidateAdminAi() {

@@ -16,6 +16,7 @@ import {
   generateOutline,
   type ContentType,
 } from "@/lib/deepseek";
+import { articleAuthorData, resolveEditorialPersona } from "@/lib/editorial-personas";
 import { readingTimeFromMarkdown } from "@/lib/markdown";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slugify";
@@ -137,6 +138,14 @@ export async function createDraftFromKeywordIdeaAction(formData: FormData) {
   }
 
   const content = draftContentFromIdea(idea);
+  const articleAuthor = articleAuthorData(
+    resolveEditorialPersona({
+      articleType: idea.articleType,
+      painPointNames: idea.painPoint ? [idea.painPoint.name] : [],
+      audienceNames: idea.audience ? [idea.audience.name] : [],
+      bookSignals: [idea.keyword, idea.intent, idea.notes || ""],
+    }),
+  );
   const article = await prisma.article.create({
     data: {
       title: idea.keyword,
@@ -152,6 +161,7 @@ export async function createDraftFromKeywordIdeaAction(formData: FormData) {
         idea.notes?.slice(0, 155) ||
         `Bài viết gợi ý sách theo keyword ${idea.keyword}.`,
       focusKeyword: idea.keyword,
+      ...articleAuthor,
       readingTime: readingTimeFromMarkdown(content),
       clusterId: idea.clusterId,
       painPoints: idea.painPointId ? { connect: [{ id: idea.painPointId }] } : undefined,

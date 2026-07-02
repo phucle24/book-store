@@ -111,6 +111,7 @@ model Book {
   aiGenerations      AiGeneration[]
   clickEvents        ClickEvent[]
   pageViews          PageView[]
+  intentEvents       IntentEvent[]
   researchRuns       ResearchRun[]   @relation("ResearchRunBook")
 }
 
@@ -139,6 +140,7 @@ model PainPoint {
   books        Book[]           @relation("BookPainPoints")
   clusters     ContentCluster[]
   keywordIdeas KeywordIdea[]
+  intentEvents IntentEvent[]
 }
 
 model Audience {
@@ -168,6 +170,10 @@ model Article {
   seoTitle          String?
   seoDescription    String?
   focusKeyword      String?
+  authorName        String?
+  authorSlug        String?
+  authorBio         String?
+  voiceTone         String?
   readingTime       Int              @default(1)
   publishedAt       DateTime?
   scheduledAt       DateTime?
@@ -182,6 +188,7 @@ model Article {
   aiGenerations     AiGeneration[]
   clickEvents       ClickEvent[]
   pageViews         PageView[]
+  intentEvents      IntentEvent[]
   reviewInsight     ReviewInsight?   @relation(fields: [reviewInsightId], references: [id], onDelete: SetNull)
   cluster           ContentCluster?  @relation("ClusterArticles", fields: [clusterId], references: [id], onDelete: SetNull)
   pillarForClusters ContentCluster[] @relation("ClusterPillar")
@@ -363,6 +370,28 @@ model PageView {
   @@index([articleId, createdAt])
   @@index([bookId, createdAt])
   @@index([path, createdAt])
+}
+
+model IntentEvent {
+  id          String     @id @default(cuid())
+  type        String
+  articleId   String?
+  bookId      String?
+  painPointId String?
+  path        String
+  metadata    Json?
+  userAgent   String?
+  referer     String?
+  ipHash      String?
+  createdAt   DateTime   @default(now())
+  article     Article?   @relation(fields: [articleId], references: [id], onDelete: SetNull)
+  book        Book?      @relation(fields: [bookId], references: [id], onDelete: SetNull)
+  painPoint   PainPoint? @relation(fields: [painPointId], references: [id], onDelete: SetNull)
+
+  @@index([type, createdAt])
+  @@index([articleId, createdAt])
+  @@index([bookId, createdAt])
+  @@index([painPointId, createdAt])
 }
 
 model FAQ {

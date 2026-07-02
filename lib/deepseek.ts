@@ -498,17 +498,22 @@ Phong cách:
 - Chạm vào nỗi đau người đọc, không viết như quảng cáo.
 - Không copy hoặc quote nguồn/review.
 - Không chèn CTA mua sách hoặc link affiliate trong contentMarkdown; layout website sẽ đặt CTA cuối bài.
+- Tone là chất liệu biên tập chính. Hãy để tone ảnh hưởng đến nhịp câu, cách mở bài, loại ví dụ và mức độ phân tích; không dùng một template giọng giống nhau cho mọi cuốn sách.
 
 Yêu cầu:
 - 1400-2200 từ.
+- Mở đầu bằng hook đời thường 150-250 chữ trước H2 đầu tiên.
 - Có H2/H3 rõ.
 - Có phần "Sách nói về gì".
 - Có H2 đúng: "Review chi tiết: cuốn sách này đáng ở điểm nào?".
 - Có phần "Ai nên đọc" và "Ai không nên đọc".
 - Có phần "Điểm hạn chế".
 - Kết thúc bằng H2 "Nên đọc cuốn này như thế nào".
-- Có FAQ riêng theo bài.
+- Không đưa FAQ vào contentMarkdown; FAQ chỉ nằm trong field faqs.
 - Không viết section "review Shopee" nếu chỉ có review paste thủ công; chỉ tổng hợp thành xu hướng người mua thường thích/cân nhắc.
+- Không dùng ngôi "tôi" để kể trải nghiệm cá nhân nếu input không có verifiedRead=true. Với Autopilot mặc định là chưa verifiedRead.
+- Không quote trực tiếp câu trong sách, tác giả, review hoặc nguồn research. Chỉ diễn giải bằng lời riêng.
+- Không nêu số liệu cụ thể như số bản bán, số tuần bestseller nếu extracted facts không hỗ trợ rõ.
 
 Input:
 Tên sách: ${input.bookTitle}

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { ArticleStatus, ArticleType } from "@prisma/client";
 import { AffiliateDecisionCard } from "@/components/AffiliateDecisionCard";
 import { ArticleIntentBox } from "@/components/ArticleIntentBox";
+import { ArticleByline } from "@/components/ArticleByline";
 import { ArticleShareActions } from "@/components/ArticleShareActions";
 import { ArticleTableOfContents } from "@/components/ArticleTableOfContents";
 import {
@@ -13,7 +14,10 @@ import {
 import { FAQBlock } from "@/components/FAQBlock";
 import { HighlightText } from "@/components/HighlightText";
 import { InternalLinkCluster } from "@/components/InternalLinkCluster";
+import { IntentEventTracker } from "@/components/IntentEventTracker";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { NextSmallStep } from "@/components/NextSmallStep";
+import { PainJourneyBlock } from "@/components/PainJourneyBlock";
 import { ReaderNextSteps } from "@/components/ReaderNextSteps";
 import { RelatedArticles } from "@/components/RelatedArticles";
 import { RelatedBooks } from "@/components/RelatedBooks";
@@ -177,7 +181,11 @@ export default async function ArticleDetailPage({
     description: article.seoDescription || article.excerpt,
     datePublished: publishedAt.toISOString(),
     dateModified: article.updatedAt.toISOString(),
-    author: { "@type": "Organization", name: siteName },
+    author: {
+      "@type": article.authorName ? "Person" : "Organization",
+      name: article.authorName || siteName,
+    },
+    publisher: { "@type": "Organization", name: siteName },
     image: article.coverImage ? [article.coverImage] : undefined,
     mainEntityOfPage: siteUrl(`/bai-viet/${article.slug}`),
   };
@@ -195,6 +203,11 @@ export default async function ArticleDetailPage({
 
   return (
     <article className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <IntentEventTracker
+        articleId={article.id}
+        bookId={mainBook?.id}
+        painPointId={article.painPoints[0]?.id}
+      />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
@@ -233,15 +246,16 @@ export default async function ArticleDetailPage({
         <p className="mt-5 text-lg leading-8 text-stone-700">
           <HighlightText text={article.excerpt} keywords={highlightKeywords} />
         </p>
-        <div className="mt-5 flex flex-wrap gap-3 text-sm text-stone-500">
-          <span>{article.readingTime} phút đọc</span>
-          <span>•</span>
-          <time dateTime={publishedAt.toISOString()}>
-            {publishedAt.toLocaleDateString("vi-VN")}
-          </time>
-          <span>•</span>
-          <span>Cập nhật lần cuối {article.updatedAt.toLocaleDateString("vi-VN")}</span>
-        </div>
+        <ArticleByline
+          article={{
+            authorName: article.authorName,
+            authorBio: article.authorBio,
+            voiceTone: article.voiceTone,
+            readingTime: article.readingTime,
+            publishedAt,
+            updatedAt: article.updatedAt,
+          }}
+        />
         <div className="mt-5 flex flex-wrap items-center gap-3">
           <SavedArticleButton
             article={{
@@ -269,6 +283,12 @@ export default async function ArticleDetailPage({
       {isTopList ? (
         <TopListQuickGuide books={topListBooks} highlightKeywords={highlightKeywords} />
       ) : null}
+
+      <PainJourneyBlock
+        painPoint={article.painPoints[0]}
+        articles={samePainArticles}
+        books={relatedBooks}
+      />
 
       <div className="mx-auto mt-10 max-w-3xl rounded-3xl bg-white px-5 py-8 shadow-sm sm:px-8">
         {!isTopList && mainBook ? (
@@ -313,18 +333,26 @@ export default async function ArticleDetailPage({
         books={relatedBooks}
       />
 
+      <NextSmallStep
+        painPoint={article.painPoints[0]}
+        nextArticle={samePainArticles[0] || sameAudienceArticles[0] || relatedArticles[0]}
+        book={mainBook || relatedBooks[0]}
+      />
+
       {isTopList ? (
-        <>
+        <div data-cta-visible-target>
           <TopListSituationPicker books={topListBooks} />
           <TopListFinalCta books={topListBooks} highlightKeywords={highlightKeywords} />
-        </>
+        </div>
       ) : (
         mainBook ? (
-          <AffiliateDecisionCard
-            book={mainBook}
-            trackingSlug={trackingSlug}
-            readBeforeBuying={samePainArticles}
-          />
+          <div data-cta-visible-target>
+            <AffiliateDecisionCard
+              book={mainBook}
+              trackingSlug={trackingSlug}
+              readBeforeBuying={samePainArticles}
+            />
+          </div>
         ) : null
       )}
 

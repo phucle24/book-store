@@ -81,6 +81,7 @@ export default async function AdminArticlesPage({
                 <tr>
                   <th className="px-4 py-3">Bài viết</th>
                   <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">Bút danh</th>
                   <th className="px-4 py-3">Trạng thái</th>
                   <th className="px-4 py-3">Lịch đăng</th>
                   <th className="px-4 py-3">Sách chính</th>
@@ -104,6 +105,9 @@ export default async function AdminArticlesPage({
                       </p>
                     </td>
                     <td className="px-4 py-4 text-stone-600">{article.type}</td>
+                    <td className="px-4 py-4 text-stone-600">
+                      {article.authorName || "Ban biên tập"}
+                    </td>
                     <td className="px-4 py-4">
                       <StatusBadge status={article.status} />
                     </td>

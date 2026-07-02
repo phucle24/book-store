@@ -29,6 +29,10 @@ export default async function AdminDashboardPage({
     clicks7d,
     clicks30d,
     views30d,
+    intentEvents30d,
+    ctaVisible30d,
+    savedEvents30d,
+    journeyEvents30d,
     publishedArticles,
     draftArticles,
     reviewArticles,
@@ -36,6 +40,7 @@ export default async function AdminDashboardPage({
     pendingIdeas,
     briefedIdeas,
     publishedArticleStats,
+    articleIntentGroups,
     topArticles,
     topBooks,
   ] = await Promise.all([
@@ -46,6 +51,19 @@ export default async function AdminDashboardPage({
     prisma.clickEvent.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
     prisma.clickEvent.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
     prisma.pageView.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
+    prisma.intentEvent.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
+    prisma.intentEvent.count({
+      where: { type: "cta_visible", createdAt: { gte: thirtyDaysAgo } },
+    }),
+    prisma.intentEvent.count({
+      where: { type: "saved_article", createdAt: { gte: thirtyDaysAgo } },
+    }),
+    prisma.intentEvent.count({
+      where: {
+        type: { in: ["journey_item_clicked", "small_step_clicked"] },
+        createdAt: { gte: thirtyDaysAgo },
+      },
+    }),
     prisma.article.count({ where: { status: ArticleStatus.PUBLISHED } }),
     prisma.article.count({ where: { status: ArticleStatus.DRAFT } }),
     prisma.article.count({ where: { status: ArticleStatus.REVIEW } }),
@@ -59,6 +77,17 @@ export default async function AdminDashboardPage({
         _count: { select: { clickEvents: true, pageViews: true } },
       },
     }),
+    prisma.intentEvent.groupBy({
+      by: ["articleId", "type"],
+      where: {
+        createdAt: { gte: thirtyDaysAgo },
+        articleId: { not: null },
+        type: {
+          in: ["cta_visible", "article_scroll_50", "article_scroll_90", "saved_article"],
+        },
+      },
+      _count: { _all: true },
+    }),
     prisma.article.findMany({
       include: { _count: { select: { clickEvents: true, pageViews: true } } },
       orderBy: { clickEvents: { _count: "desc" } },
@@ -71,6 +100,16 @@ export default async function AdminDashboardPage({
     }),
   ]);
   const affiliateCtr30d = views30d ? `${((clicks30d / views30d) * 100).toFixed(1)}%` : "0%";
+  const intentByArticle = articleIntentGroups.reduce(
+    (acc, item) => {
+      if (!item.articleId) return acc;
+      const current = acc[item.articleId] || {};
+      current[item.type] = item._count._all;
+      acc[item.articleId] = current;
+      return acc;
+    },
+    {} as Record<string, Record<string, number>>,
+  );
   const lowCtrArticles = publishedArticleStats
     .filter((article) => article._count.pageViews >= 5)
     .map((article) => ({
@@ -79,6 +118,23 @@ export default async function AdminDashboardPage({
     }))
     .filter((article) => article.ctr < 0.02)
     .sort((a, b) => b._count.pageViews - a._count.pageViews)
+    .slice(0, 5);
+  const rewriteCandidates = publishedArticleStats
+    .map((article) => ({
+      ...article,
+      intent: intentByArticle[article.id] || {},
+    }))
+    .filter((article) => {
+      const ctaVisible = article.intent.cta_visible || 0;
+      const scroll50 = article.intent.article_scroll_50 || 0;
+      return (ctaVisible >= 3 && article._count.clickEvents === 0) || scroll50 >= 8;
+    })
+    .sort(
+      (a, b) =>
+        (b.intent.cta_visible || 0) +
+        (b.intent.article_scroll_50 || 0) -
+        ((a.intent.cta_visible || 0) + (a.intent.article_scroll_50 || 0)),
+    )
     .slice(0, 5);
   const ctrByType = Object.entries(
     publishedArticleStats.reduce(
@@ -132,6 +188,10 @@ export default async function AdminDashboardPage({
         <MetricCard label="Click 30 ngày" value={clicks30d} />
         <MetricCard label="View 30 ngày" value={views30d} />
         <MetricCard label="CTR affiliate 30 ngày" value={affiliateCtr30d} />
+        <MetricCard label="Intent events 30 ngày" value={intentEvents30d} />
+        <MetricCard label="CTA visible 30 ngày" value={ctaVisible30d} />
+        <MetricCard label="Bài được lưu 30 ngày" value={savedEvents30d} />
+        <MetricCard label="Journey click 30 ngày" value={journeyEvents30d} />
         <MetricCard label="Ideas chờ viết" value={pendingIdeas} />
         <MetricCard label="Ideas đã brief" value={briefedIdeas} />
       </div>
@@ -173,6 +233,39 @@ export default async function AdminDashboardPage({
             {!lowCtrArticles.length ? (
               <p className="py-6 text-sm text-stone-500">
                 Chưa có bài đủ view để cảnh báo CTR thấp.
+              </p>
+            ) : null}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-stone-950">
+            Nên rewrite hook/decision card
+          </h2>
+          <div className="mt-4 divide-y divide-stone-100">
+            {rewriteCandidates.map((article) => (
+              <div key={article.id} className="flex items-center justify-between gap-4 py-3">
+                <div>
+                  <Link
+                    href={`/admin/articles/${article.id}/edit`}
+                    className="font-medium text-stone-950 hover:text-amber-900"
+                  >
+                    {article.title}
+                  </Link>
+                  <p className="mt-1 text-xs text-stone-500">
+                    {article.intent.article_scroll_50 || 0} scroll 50 ·{" "}
+                    {article.intent.cta_visible || 0} CTA visible ·{" "}
+                    {article._count.clickEvents} click
+                  </p>
+                </div>
+                <span className="rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-800">
+                  Sửa
+                </span>
+              </div>
+            ))}
+            {!rewriteCandidates.length ? (
+              <p className="py-6 text-sm text-stone-500">
+                Chưa có đủ intent event để gợi ý rewrite.
               </p>
             ) : null}
           </div>
