@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   ArticleBookRole,
@@ -19,6 +19,8 @@ import {
 } from "@/lib/editorial-personas";
 import { readingTimeFromMarkdown } from "@/lib/markdown";
 import { prisma } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
+import { hashIp } from "@/lib/hash";
 import { slugify } from "@/lib/slugify";
 
 const optionalUrlSchema = z
@@ -120,6 +122,15 @@ export async function loginAction(formData: FormData) {
   const parsed = loginSchema.safeParse(formValues(formData, ["email", "password", "next"]));
   if (!parsed.success) {
     redirect(`/admin/login?error=${encodeURIComponent(firstError(parsed.error))}`);
+  }
+
+  const loginRate = await checkAdminLoginRateLimit(parsed.data.email);
+  if (!loginRate.ok) {
+    redirect(
+      `/admin/login?error=${encodeURIComponent(
+        `Thử lại sau khoảng ${loginRate.retryAfterSeconds} giây.`,
+      )}`,
+    );
   }
 
   const adminEmail = process.env.ADMIN_EMAIL || "admin@example.com";
@@ -808,6 +819,20 @@ async function uniqueAffiliateTrackingSlug(input: string) {
 
 function firstError(error: z.ZodError) {
   return error.issues[0]?.message || "Dữ liệu không hợp lệ.";
+}
+
+async function checkAdminLoginRateLimit(email: string) {
+  const headerStore = await headers();
+  const forwardedFor = headerStore.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const realIp = headerStore.get("x-real-ip")?.trim();
+  const userAgent = headerStore.get("user-agent") || "";
+  const ipKey = hashIp(`${forwardedFor || realIp || "unknown"}:${userAgent}`) || "unknown";
+
+  return rateLimit({
+    key: `admin-login:${email.toLowerCase()}:${ipKey}`,
+    limit: 8,
+    windowMs: 15 * 60 * 1000,
+  });
 }
 
 function isValidUrl(value: string) {

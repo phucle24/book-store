@@ -6,7 +6,6 @@ MVP website review sách affiliate bằng Next.js App Router, Prisma và Postgre
 
 ```bash
 npm install
-npx prisma generate
 npm run prisma:migrate -- --name init
 npm run prisma:seed
 npm run dev
@@ -53,6 +52,26 @@ Cron sẽ publish các bài có `status = SCHEDULED` và `scheduledAt <= now()`.
 ## Checks
 
 ```bash
+npm ci
 npm run lint
 npm run build
+npx prisma migrate status
+npm run release:check
 ```
+
+## Production Release
+
+Production dùng VPS/Node server, PM2, Nginx, Certbot và Neon Postgres.
+
+Lệnh deploy chính trên VPS:
+
+```bash
+npm ci
+npm run prisma:migrate:deploy
+npm run build
+pm2 restart book-store || pm2 start npm --name book-store -- start
+```
+
+Không dùng `prisma migrate dev` trên production.
+
+Xem checklist chi tiết tại [docs/VPS_RELEASE.md](docs/VPS_RELEASE.md).

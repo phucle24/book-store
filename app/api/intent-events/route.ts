@@ -3,6 +3,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { hashIp } from "@/lib/hash";
 import { prisma } from "@/lib/prisma";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +23,26 @@ const eventSchema = z.object({
 
 export async function POST(request: NextRequest) {
   try {
+    const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+    const realIp = request.headers.get("x-real-ip")?.trim();
+    const userAgent = request.headers.get("user-agent") || "";
+    const rateKey = hashIp(`${forwardedFor || realIp || "unknown"}:${userAgent}`) || "unknown";
+    const eventRate = rateLimit({
+      key: `intent-event:${rateKey}`,
+      limit: 180,
+      windowMs: 60_000,
+    });
+
+    if (!eventRate.ok) {
+      return Response.json(
+        { ok: false, error: "Too many events" },
+        {
+          status: 429,
+          headers: { "Retry-After": String(eventRate.retryAfterSeconds) },
+        },
+      );
+    }
+
     const json = await request.json();
     const parsed = eventSchema.safeParse(json);
     if (!parsed.success) {
@@ -29,8 +50,6 @@ export async function POST(request: NextRequest) {
     }
 
     const data = parsed.data;
-    const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-    const realIp = request.headers.get("x-real-ip");
 
     await prisma.intentEvent.create({
       data: {
