@@ -1,5 +1,9 @@
+import Link from "next/link";
+import { voiceToneLabel } from "@/lib/voice-tones";
+
 type ArticleBylineData = {
   authorName?: string | null;
+  authorSlug?: string | null;
   authorBio?: string | null;
   voiceTone?: string | null;
   publishedAt?: Date | null;
@@ -9,6 +13,7 @@ type ArticleBylineData = {
 
 export function ArticleByline({ article }: { article: ArticleBylineData }) {
   const authorName = article.authorName || "Ban biên tập Trạm Đọc";
+  const toneLabel = voiceToneLabel(article.voiceTone);
 
   return (
     <div className="mt-5 flex items-start gap-3 rounded-3xl border border-stone-200 bg-white/80 p-4 shadow-sm">
@@ -16,10 +21,23 @@ export function ArticleByline({ article }: { article: ArticleBylineData }) {
         {initials(authorName)}
       </div>
       <div className="min-w-0">
-        <p className="text-sm font-semibold text-stone-950">
-          {authorName}
-        </p>
+        {article.authorSlug ? (
+          <Link
+            href={`/tac-gia/${article.authorSlug}`}
+            className="text-sm font-semibold text-stone-950 hover:text-amber-900"
+          >
+            {authorName}
+          </Link>
+        ) : (
+          <p className="text-sm font-semibold text-stone-950">{authorName}</p>
+        )}
+        {article.authorBio ? (
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-stone-600">
+            {article.authorBio}
+          </p>
+        ) : null}
         <div className="mt-2 flex flex-wrap gap-2 text-xs text-stone-500">
+          {toneLabel ? <span>{toneLabel}</span> : null}
           {article.readingTime ? <span>{article.readingTime} phút đọc</span> : null}
           {article.publishedAt ? (
             <>

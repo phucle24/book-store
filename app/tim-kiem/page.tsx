@@ -16,11 +16,14 @@ export async function generateMetadata({
   searchParams: Promise<{ q?: string }>;
 }) {
   const { q } = await searchParams;
-  return pageMetadata({
-    title: q ? `Tìm kiếm: ${q}` : "Tìm kiếm",
-    description: "Tìm bài viết và sách theo tên sách, chủ đề, nỗi đau hoặc đối tượng đọc.",
-    path: q ? `/tim-kiem?q=${encodeURIComponent(q)}` : "/tim-kiem",
-  });
+  return {
+    ...pageMetadata({
+      title: q ? `Tìm kiếm: ${q}` : "Tìm kiếm",
+      description: "Tìm bài viết và sách theo tên sách, chủ đề, nỗi đau hoặc đối tượng đọc.",
+      path: q ? `/tim-kiem?q=${encodeURIComponent(q)}` : "/tim-kiem",
+    }),
+    robots: { index: false, follow: true },
+  };
 }
 
 export default async function SearchPage({

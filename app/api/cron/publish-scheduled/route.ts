@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { ArticleStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
@@ -70,6 +71,15 @@ export async function POST(request: Request) {
         ]
       : []),
   ]);
+
+  revalidatePath("/");
+  revalidatePath("/bai-viet");
+  revalidatePath("/bai-viet/[slug]", "page");
+  revalidatePath("/noi-dau/[slug]", "page");
+  revalidatePath("/chu-de/[slug]", "page");
+  revalidatePath("/doi-tuong/[slug]", "page");
+  revalidatePath("/cum-noi-dung/[slug]", "page");
+  revalidatePath("/sitemap.xml");
 
   return NextResponse.json({ published: ids.length, articleIds: ids });
 }

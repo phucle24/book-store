@@ -5,13 +5,25 @@ import { AffiliateButton } from "@/components/AffiliateButton";
 import { ArticleCard } from "@/components/ArticleCard";
 import { BookPainFitBlock } from "@/components/BookPainFitBlock";
 import { BookCard } from "@/components/BookCard";
+import { BookCover } from "@/components/BookCover";
 import { DisclosureBox } from "@/components/DisclosureBox";
 import { IntentEventTracker } from "@/components/IntentEventTracker";
-import { trackPageView } from "@/lib/page-view";
+import { PageViewTracker } from "@/components/PageViewTracker";
+import { VerdictCard } from "@/components/VerdictCard";
 import { prisma } from "@/lib/prisma";
+import { getActiveBookBySlug } from "@/lib/queries";
 import { pageMetadata, siteUrl } from "@/lib/seo";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 600;
+
+export async function generateStaticParams() {
+  const books = await prisma.book.findMany({
+    where: { status: BookStatus.ACTIVE },
+    select: { slug: true },
+  });
+
+  return books.map((book) => ({ slug: book.slug }));
+}
 
 export async function generateMetadata({
   params,
@@ -19,12 +31,9 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const book = await prisma.book.findUnique({
-    where: { slug },
-    select: { title: true, description: true, coverImage: true, status: true },
-  });
+  const book = await getActiveBookBySlug(slug);
 
-  if (!book || book.status !== BookStatus.ACTIVE) {
+  if (!book) {
     return pageMetadata({
       title: "Không tìm thấy sách",
       description: "Cuốn sách không tồn tại hoặc đang tạm ẩn.",
@@ -46,26 +55,9 @@ export default async function BookDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const book = await prisma.book.findFirst({
-    where: { slug, status: BookStatus.ACTIVE },
-    include: {
-      categories: true,
-      painPoints: true,
-      audiences: true,
-      affiliateLinks: { where: { isActive: true }, take: 1 },
-      articles: {
-        include: {
-          article: {
-            include: { categories: true, painPoints: true },
-          },
-        },
-      },
-    },
-  });
+  const book = await getActiveBookBySlug(slug);
 
   if (!book) notFound();
-
-  await trackPageView({ bookId: book.id, path: `/sach/${book.slug}` });
 
   const relatedArticles = book.articles
     .map((item) => item.article)
@@ -96,6 +88,7 @@ export default async function BookDetailPage({
         bookId={book.id}
         painPointId={book.painPoints[0]?.id}
       />
+      <PageViewTracker bookId={book.id} path={`/sach/${book.slug}`} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
@@ -109,9 +102,7 @@ export default async function BookDetailPage({
 
       <section className="mt-8 grid gap-8 lg:grid-cols-[0.85fr_1.15fr]">
         <div className="rounded-[2rem] border border-stone-200 bg-white p-5 shadow-sm">
-          <div className="flex aspect-[3/4] items-center justify-center rounded-[1.5rem] bg-gradient-to-br from-amber-100 via-stone-100 to-emerald-100 p-8 text-center text-3xl font-semibold text-stone-800">
-            {book.title}
-          </div>
+          <BookCover title={book.title} coverImage={book.coverImage} priority />
         </div>
         <div>
           <div className="flex flex-wrap gap-2">
@@ -133,6 +124,15 @@ export default async function BookDetailPage({
             <p className="mt-1 text-sm text-stone-500">Nhà xuất bản: {book.publisher}</p>
           ) : null}
           <p className="mt-6 text-lg leading-8 text-stone-700">{book.description}</p>
+          <VerdictCard
+            score={book.editorialScore}
+            scoreBreakdown={scoreBreakdown(book.scoreBreakdown)}
+            summary={
+              book.editorialScore
+                ? "Điểm này phản ánh đánh giá biên tập của Trạm Đọc, không phải điểm người mua trên sàn."
+                : null
+            }
+          />
         </div>
       </section>
 
@@ -190,6 +190,14 @@ export default async function BookDetailPage({
       </section>
     </div>
   );
+}
+
+function scoreBreakdown(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  return Object.fromEntries(
+    Object.entries(value).filter(([, score]) => typeof score === "number"),
+  ) as Record<string, number>;
 }
 
 function InfoList({ title, items }: { title: string; items: string[] }) {

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArticleStatus, ArticleType } from "@prisma/client";
 import { AffiliateDecisionCard } from "@/components/AffiliateDecisionCard";
+import { ArticleSourceNote } from "@/components/ArticleSourceNote";
 import { ArticleIntentBox } from "@/components/ArticleIntentBox";
 import { ArticleByline } from "@/components/ArticleByline";
 import { ArticleShareActions } from "@/components/ArticleShareActions";
@@ -11,28 +12,38 @@ import {
   BookReadingPrelude,
   BookReadingQuestions,
 } from "@/components/BookContentBox";
+import { DisclosureBox } from "@/components/DisclosureBox";
 import { FAQBlock } from "@/components/FAQBlock";
 import { HighlightText } from "@/components/HighlightText";
-import { InternalLinkCluster } from "@/components/InternalLinkCluster";
 import { IntentEventTracker } from "@/components/IntentEventTracker";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
-import { NextSmallStep } from "@/components/NextSmallStep";
 import { PainJourneyBlock } from "@/components/PainJourneyBlock";
-import { ReaderNextSteps } from "@/components/ReaderNextSteps";
-import { RelatedArticles } from "@/components/RelatedArticles";
-import { RelatedBooks } from "@/components/RelatedBooks";
+import { PageViewTracker } from "@/components/PageViewTracker";
+import { ReadNext } from "@/components/ReadNext";
 import { SavedArticleButton } from "@/components/SavedArticleButton";
+import { SubscribeForm } from "@/components/SubscribeForm";
 import {
   TopListFinalCta,
   TopListQuickGuide,
   TopListSituationPicker,
 } from "@/components/TopListBooks";
-import { trackPageView } from "@/lib/page-view";
+import { VerdictCard } from "@/components/VerdictCard";
 import { prisma } from "@/lib/prisma";
+import { getPublishedArticleBySlug } from "@/lib/queries";
+import { breadcrumbSchema, faqSchema, itemListSchema } from "@/lib/schema-org";
 import { pageMetadata, siteName, siteUrl } from "@/lib/seo";
 import { slugify } from "@/lib/slugify";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 600;
+
+export async function generateStaticParams() {
+  const articles = await prisma.article.findMany({
+    where: { status: ArticleStatus.PUBLISHED },
+    select: { slug: true },
+  });
+
+  return articles.map((article) => ({ slug: article.slug }));
+}
 
 export async function generateMetadata({
   params,
@@ -40,19 +51,9 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const article = await prisma.article.findUnique({
-    where: { slug },
-    select: {
-      title: true,
-      excerpt: true,
-      seoTitle: true,
-      seoDescription: true,
-      coverImage: true,
-      status: true,
-    },
-  });
+  const article = await getPublishedArticleBySlug(slug);
 
-  if (!article || article.status !== ArticleStatus.PUBLISHED) {
+  if (!article) {
     return pageMetadata({
       title: "Không tìm thấy bài viết",
       description: "Bài viết không tồn tại hoặc chưa được xuất bản.",
@@ -64,7 +65,11 @@ export async function generateMetadata({
     title: article.seoTitle || article.title,
     description: article.seoDescription || article.excerpt,
     path: `/bai-viet/${slug}`,
-    image: article.coverImage,
+    image: article.coverImage || siteUrl(`/bai-viet/${slug}/opengraph-image`),
+    type: "article",
+    authors: [article.authorName || siteName],
+    publishedTime: article.publishedAt?.toISOString(),
+    modifiedTime: article.updatedAt.toISOString(),
   });
 }
 
@@ -74,27 +79,7 @@ export default async function ArticleDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const article = await prisma.article.findFirst({
-    where: { slug, status: ArticleStatus.PUBLISHED },
-    include: {
-      categories: true,
-      painPoints: true,
-      audiences: true,
-      faqs: { orderBy: { order: "asc" } },
-      affiliateLinks: { where: { isActive: true }, take: 1 },
-      books: {
-        orderBy: [{ order: "asc" }],
-        include: {
-          book: {
-            include: {
-              painPoints: true,
-              affiliateLinks: { where: { isActive: true }, take: 1 },
-            },
-          },
-        },
-      },
-    },
-  });
+  const article = await getPublishedArticleBySlug(slug);
 
   if (!article) notFound();
 
@@ -108,8 +93,6 @@ export default async function ArticleDetailPage({
     !isTopList
       ? article.affiliateLinks[0]?.trackingSlug || mainBook?.affiliateLinks[0]?.trackingSlug
       : null;
-
-  await trackPageView({ articleId: article.id, path: `/bai-viet/${article.slug}` });
 
   const [relatedArticles, samePainArticles, sameAudienceArticles, sameBookArticles] =
     await Promise.all([
@@ -190,15 +173,39 @@ export default async function ArticleDetailPage({
     mainEntityOfPage: siteUrl(`/bai-viet/${article.slug}`),
   };
   const faqJsonLd = article.faqs.length
-    ? {
-        "@context": "https://schema.org",
-        "@type": "FAQPage",
-        mainEntity: article.faqs.map((faq) => ({
-          "@type": "Question",
-          name: faq.question,
-          acceptedAnswer: { "@type": "Answer", text: faq.answer },
-        })),
-      }
+    ? faqSchema(article.faqs.map((faq) => ({ question: faq.question, answer: faq.answer })))
+    : null;
+  const breadcrumbJsonLd = breadcrumbSchema([
+    { name: "Trang chủ", url: siteUrl("/") },
+    { name: "Bài viết", url: siteUrl("/bai-viet") },
+    { name: article.title, url: articleUrl },
+  ]);
+  const reviewJsonLd =
+    article.type === ArticleType.REVIEW && (article.verdictScore || mainBook?.editorialScore) && mainBook
+      ? {
+          "@context": "https://schema.org",
+          "@type": "Review",
+          name: article.title,
+          reviewBody: article.verdictSummary || article.excerpt,
+          author: {
+            "@type": article.authorName ? "Person" : "Organization",
+            name: article.authorName || siteName,
+          },
+          itemReviewed: {
+            "@type": "Book",
+            name: mainBook.title,
+            author: { "@type": "Person", name: mainBook.author },
+          },
+          reviewRating: {
+            "@type": "Rating",
+            ratingValue: article.verdictScore || mainBook.editorialScore,
+            bestRating: 5,
+            worstRating: 1,
+          },
+        }
+      : null;
+  const itemListJsonLd = isTopList
+    ? itemListSchema(topListBooks.map((book) => ({ name: book.title, url: siteUrl(`/sach/${book.slug}`) })))
     : null;
 
   return (
@@ -208,10 +215,27 @@ export default async function ArticleDetailPage({
         bookId={mainBook?.id}
         painPointId={article.painPoints[0]?.id}
       />
+      <PageViewTracker articleId={article.id} path={`/bai-viet/${article.slug}`} />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleJsonLd) }}
       />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+      />
+      {reviewJsonLd ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(reviewJsonLd) }}
+        />
+      ) : null}
+      {itemListJsonLd ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }}
+        />
+      ) : null}
       {faqJsonLd ? (
         <script
           type="application/ld+json"
@@ -246,9 +270,15 @@ export default async function ArticleDetailPage({
         <p className="mt-5 text-lg leading-8 text-stone-700">
           <HighlightText text={article.excerpt} keywords={highlightKeywords} />
         </p>
+        <VerdictCard
+          score={article.verdictScore || mainBook?.editorialScore}
+          summary={article.verdictSummary}
+          scoreBreakdown={scoreBreakdown(mainBook?.scoreBreakdown)}
+        />
         <ArticleByline
           article={{
             authorName: article.authorName,
+            authorSlug: article.authorSlug,
             authorBio: article.authorBio,
             voiceTone: article.voiceTone,
             readingTime: article.readingTime,
@@ -268,10 +298,25 @@ export default async function ArticleDetailPage({
                 ...article.painPoints.map((item) => item.name),
                 ...article.audiences.map((item) => item.name),
               ],
+              tagLinks: [
+                ...article.painPoints.map((item) => ({
+                  name: item.name,
+                  href: `/noi-dau/${item.slug}`,
+                })),
+                ...article.audiences.map((item) => ({
+                  name: item.name,
+                  href: `/doi-tuong/${item.slug}`,
+                })),
+              ],
             }}
           />
           <ArticleShareActions url={articleUrl} title={article.title} />
         </div>
+        {!isTopList ? (
+          <div className="mt-5">
+            <DisclosureBox />
+          </div>
+        ) : null}
       </div>
 
       <ArticleIntentBox type={article.type} painPointName={article.painPoints[0]?.name} />
@@ -304,39 +349,11 @@ export default async function ArticleDetailPage({
         ) : null}
       </div>
 
-      <InternalLinkCluster
-        groups={[
-          {
-            title: "Cùng nỗi đau",
-            description: "Những bài viết chạm vào vấn đề gần với giai đoạn bạn đang đọc.",
-            items: samePainArticles,
-          },
-          {
-            title: "Cùng nhóm người đọc",
-            description: "Các bài dành cho người có bối cảnh hoặc nhu cầu đọc tương tự.",
-            items: sameAudienceArticles,
-          },
-          {
-            title: "Cùng cuốn sách",
-            description: "Những góc nhìn khác nếu bạn muốn hiểu thêm về cuốn sách này.",
-            items: sameBookArticles,
-          },
-        ]}
-      />
-
-      <ReaderNextSteps
-        painPointName={article.painPoints[0]?.name}
-        audienceName={article.audiences[0]?.name}
-        samePainArticles={samePainArticles}
-        sameAudienceArticles={sameAudienceArticles}
-        sameBookArticles={sameBookArticles}
-        books={relatedBooks}
-      />
-
-      <NextSmallStep
+      <ReadNext
         painPoint={article.painPoints[0]}
-        nextArticle={samePainArticles[0] || sameAudienceArticles[0] || relatedArticles[0]}
-        book={mainBook || relatedBooks[0]}
+        featuredArticle={samePainArticles[0] || sameAudienceArticles[0] || sameBookArticles[0] || relatedArticles[0]}
+        secondaryArticles={[...sameAudienceArticles, ...sameBookArticles, ...relatedArticles]}
+        books={relatedBooks}
       />
 
       {isTopList ? (
@@ -357,9 +374,14 @@ export default async function ArticleDetailPage({
       )}
 
       <div className="mx-auto max-w-3xl">
+        <ArticleSourceNote sources={article.sources} reviewInsight={article.reviewInsight} />
         <FAQBlock faqs={article.faqs} />
-        <RelatedBooks books={relatedBooks} />
-        <RelatedArticles articles={relatedArticles} />
+        <div className="mt-8">
+          <SubscribeForm
+            source={`article:${article.slug}`}
+            painPointId={article.painPoints[0]?.id}
+          />
+        </div>
       </div>
     </article>
   );
@@ -398,6 +420,14 @@ function extractTocItems(content: string) {
     })
     .filter((item): item is { id: string; title: string; level: number } => Boolean(item))
     .slice(0, 8);
+}
+
+function scoreBreakdown(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+
+  return Object.fromEntries(
+    Object.entries(value).filter(([, score]) => typeof score === "number"),
+  ) as Record<string, number>;
 }
 
 function painHighlightKeywords({

@@ -41,18 +41,34 @@ type ResearchRunView = {
   sources: ResearchSourceView[];
 };
 
+type QuickDraftSuggestion = {
+  id: string;
+  title: string;
+  author: string;
+  publisher?: string | null;
+  affiliateUrl?: string | null;
+  manualBookData: string;
+  articleCount: number;
+  category?: Option | null;
+  painPoint?: Option | null;
+  audience?: Option | null;
+  focusKeyword: string;
+};
+
 export function AdminAiAutopilot({
   categories,
   painPoints,
   audiences,
   selectedRun,
   recentRuns,
+  quickDraftSuggestions,
 }: {
   categories: Option[];
   painPoints: Option[];
   audiences: Option[];
   selectedRun?: ResearchRunView | null;
   recentRuns: ResearchRunView[];
+  quickDraftSuggestions: QuickDraftSuggestion[];
 }) {
   const run = selectedRun || null;
 
@@ -144,29 +160,113 @@ export function AdminAiAutopilot({
             placeholder="Nguồn đáng tin, angle muốn viết, điều cần tránh..."
           />
 
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            <TextField label="Lên lịch lúc" name="scheduledAt" type="datetime-local" />
-          </div>
-
           <div className="mt-5 flex flex-wrap gap-2">
             <WorkflowButton intent="research" label="Research sources" variant="secondary" />
             <WorkflowButton intent="book" label="Generate book data" variant="secondary" />
             <WorkflowButton intent="draft" label="Generate article draft" />
-            <WorkflowButton intent="schedule" label="Generate + Schedule" />
-            <WorkflowButton intent="publish" label="Publish now" variant="danger" />
           </div>
           <p className="mt-3 text-xs leading-5 text-stone-500">
-            Publish now chỉ publish khi checklist đủ: nguồn đủ mạnh, content đủ dài, có SEO,
-            FAQ và affiliate URL. Nếu chưa đủ, bài sẽ được đưa vào REVIEW.
+            Autopilot luôn tạo DRAFT hoặc REVIEW. Mở bài vừa tạo để kiểm tra nguồn, verdict,
+            FAQ và nội dung trước khi tự chọn lịch đăng hoặc publish trong editor.
           </p>
         </form>
 
         <div className="space-y-5">
+          <QuickDraftPanel suggestions={quickDraftSuggestions} />
           <ResearchRunPanel run={run} />
           <RecentRuns runs={recentRuns} selectedRunId={run?.id} />
         </div>
       </div>
     </section>
+  );
+}
+
+function QuickDraftPanel({ suggestions }: { suggestions: QuickDraftSuggestion[] }) {
+  return (
+    <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-base font-semibold text-stone-950">
+            Tạo nhanh từ sách đã có
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-stone-600">
+            Một click để AI research, học từ các bài published tốt nhất, tạo Book/Article
+            và để bạn review thủ công trước khi đăng.
+          </p>
+        </div>
+        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+          Content Memory
+        </span>
+      </div>
+
+      <div className="mt-4 space-y-3">
+        {suggestions.map((book) => (
+          <div key={book.id} className="rounded-2xl border border-stone-200 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="font-semibold text-stone-950">{book.title}</p>
+                <p className="mt-1 text-xs text-stone-500">
+                  {book.author} · {book.articleCount} bài liên quan
+                </p>
+                <p className="mt-2 text-xs leading-5 text-stone-600">
+                  {book.painPoint?.name || "AI tự chọn nỗi đau"} ·{" "}
+                  {book.audience?.name || "AI tự chọn đối tượng"} ·{" "}
+                  {book.category?.name || "AI tự chọn chủ đề"}
+                </p>
+              </div>
+              <div className="flex shrink-0 flex-wrap gap-2">
+                <QuickDraftForm book={book} intent="draft" label="Tạo draft" />
+              </div>
+            </div>
+          </div>
+        ))}
+
+        {!suggestions.length ? (
+          <p className="rounded-2xl bg-stone-50 px-4 py-4 text-sm text-stone-500">
+            Chưa có sách active có affiliate URL để tạo nhanh. Thêm sách hoặc dán link
+            affiliate vào form chính.
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function QuickDraftForm({
+  book,
+  intent,
+  label,
+}: {
+  book: QuickDraftSuggestion;
+  intent: "draft";
+  label: string;
+}) {
+  return (
+    <form action={runAiAutopilotAction}>
+      <input type="hidden" name="bookTitle" value={book.title} />
+      <input type="hidden" name="author" value={book.author} />
+      <input type="hidden" name="publisher" value={book.publisher || ""} />
+      <input type="hidden" name="affiliateUrl" value={book.affiliateUrl || ""} />
+      <input type="hidden" name="focusKeyword" value={book.focusKeyword} />
+      <input type="hidden" name="categoryId" value={book.category?.id || ""} />
+      <input type="hidden" name="painPointId" value={book.painPoint?.id || ""} />
+      <input type="hidden" name="audienceId" value={book.audience?.id || ""} />
+      <input type="hidden" name="tone" value={VOICE_TONE_AUTO} />
+      <input type="hidden" name="manualBookData" value={book.manualBookData} />
+      <input
+        type="hidden"
+        name="sourceNotes"
+        value="One-click Autopilot: tạo bài từ sách đã có trong DB, dùng Content Memory từ các bài published tốt nhất, không copy bài mẫu."
+      />
+      <button
+        type="submit"
+        name="intent"
+        value={intent}
+        className="rounded-full border border-stone-300 bg-white px-3 py-2 text-xs font-semibold text-stone-800 hover:border-amber-500 hover:text-amber-900"
+      >
+        {label}
+      </button>
+    </form>
   );
 }
 

@@ -24,6 +24,8 @@ export function AffiliateButton({
   return (
     <Link
       href={`/go/${trackingSlug}`}
+      target="_blank"
+      rel="sponsored nofollow noopener"
       data-intent-event="cta_clicked"
       data-intent-target="affiliate_button"
       data-intent-meta={JSON.stringify({ trackingSlug })}

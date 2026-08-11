@@ -27,6 +27,7 @@ export default async function EditArticlePage({
         painPoints: true,
         audiences: true,
         faqs: true,
+        sources: { orderBy: { order: "asc" } },
         books: { orderBy: [{ order: "asc" }], include: { book: true } },
       },
     }),

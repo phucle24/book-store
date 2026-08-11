@@ -11,7 +11,21 @@ import {
 import { prisma } from "@/lib/prisma";
 import { pageMetadata } from "@/lib/seo";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 900;
+
+export async function generateStaticParams() {
+  const painPoints = await prisma.painPoint.findMany({
+    where: {
+      OR: [
+        { articles: { some: { status: ArticleStatus.PUBLISHED } } },
+        { books: { some: { status: BookStatus.ACTIVE } } },
+      ],
+    },
+    select: { slug: true },
+  });
+
+  return painPoints.map((painPoint) => ({ slug: painPoint.slug }));
+}
 
 export async function generateMetadata({
   params,

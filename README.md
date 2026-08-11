@@ -20,6 +20,8 @@ Copy `.env.example` sang `.env` và cấu hình:
 - `DATABASE_URL`: connection string PostgreSQL pooled.
 - `DIRECT_URL`: connection string direct dùng cho Prisma migration.
 - `ADMIN_EMAIL`, `ADMIN_PASSWORD`: login admin MVP.
+- `SESSION_SECRET`: khóa ký admin session cookie.
+- `IP_HASH_SALT`: salt riêng để hash IP trong analytics/click tracking.
 - `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`: AI generator.
 - `CRON_SECRET`: secret để gọi cron publish bài scheduled.
 - `GOOGLE_SITE_VERIFICATION`: mã verify Google Search Console.
@@ -58,6 +60,8 @@ npm run build
 npx prisma migrate status
 npm run release:check
 ```
+
+`/admin/system-status` tóm tắt kết nối database, cron, AI keys, Search Console và số affiliate link mẫu còn cần thay trước launch. AI Autopilot luôn tạo `DRAFT` hoặc `REVIEW`; chọn lịch đăng/publish sau khi biên tập và quality gate đã đạt.
 
 ## Production Release
 

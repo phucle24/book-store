@@ -1,6 +1,7 @@
 import type {
   Article,
   ArticleBook,
+  ArticleSource,
   Audience,
   Book,
   Category,
@@ -18,6 +19,7 @@ type ArticleWithRelations = Partial<Article> & {
   audiences?: Audience[];
   faqs?: FAQ[];
   books?: (ArticleBook & { book: Book })[];
+  sources?: ArticleSource[];
 };
 
 export function AdminArticleForm({
@@ -131,6 +133,27 @@ export function AdminArticleForm({
             <span className="mt-1 block text-xs leading-5 text-stone-500">
               Đây là bút danh biên tập của website, không phải hồ sơ cá nhân ngoài đời.
             </span>
+          </label>
+          <TextField
+            label="Điểm verdict bài viết (1-5)"
+            name="verdictScore"
+            type="number"
+            step="0.1"
+            min="0"
+            max="5"
+            defaultValue={article?.verdictScore?.toString()}
+          />
+          <label className="block md:col-span-2">
+            <span className="text-sm font-medium text-stone-700">
+              Verdict summary
+            </span>
+            <textarea
+              name="verdictSummary"
+              rows={3}
+              defaultValue={article?.verdictSummary || ""}
+              placeholder="1-2 câu kết luận thẳng: sách này hợp với ai, nên cân nhắc điều gì."
+              className="mt-2 w-full rounded-2xl border border-stone-300 px-4 py-3 text-sm leading-6 outline-none focus:border-amber-700 focus:ring-4 focus:ring-amber-100"
+            />
           </label>
           <label className="block md:col-span-2">
             <span className="text-sm font-medium text-stone-700">Content cluster</span>
@@ -294,6 +317,30 @@ export function AdminArticleForm({
         />
       </section>
 
+      <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-stone-950">Nguồn tham khảo</h2>
+        <p className="mt-1 text-sm text-stone-500">
+          Mỗi dòng: title | url | kind | note. Kind có thể là REFERENCE, PUBLISHER,
+          BUYER_REVIEWS, EDITORIAL_NOTE.
+        </p>
+        <textarea
+          name="sources"
+          rows={7}
+          defaultValue={(article?.sources || [])
+            .sort((a, b) => a.order - b.order)
+            .map((source) =>
+              [
+                source.title,
+                source.url || "",
+                source.kind,
+                source.note || "",
+              ].join(" | "),
+            )
+            .join("\n")}
+          className="mt-4 w-full rounded-2xl border border-stone-300 px-4 py-3 text-sm leading-6 outline-none focus:border-amber-700 focus:ring-4 focus:ring-amber-100"
+        />
+      </section>
+
       <div className="flex justify-end">
         <button className="rounded-full bg-stone-950 px-6 py-3 text-sm font-semibold text-white hover:bg-amber-900">
           {submitLabel}
@@ -362,12 +409,18 @@ function TextField({
   defaultValue,
   required = false,
   type = "text",
+  step,
+  min,
+  max,
 }: {
   label: string;
   name: string;
   defaultValue?: string | null;
   required?: boolean;
   type?: string;
+  step?: string;
+  min?: string;
+  max?: string;
 }) {
   return (
     <label className="block">
@@ -375,6 +428,9 @@ function TextField({
       <input
         name={name}
         type={type}
+        step={step}
+        min={min}
+        max={max}
         required={required}
         defaultValue={defaultValue || ""}
         className="mt-2 w-full rounded-2xl border border-stone-300 px-4 py-3 text-sm outline-none focus:border-amber-700 focus:ring-4 focus:ring-amber-100"

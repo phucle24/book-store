@@ -19,6 +19,9 @@ export function Footer() {
           </p>
         </div>
         <div className="flex flex-wrap gap-4 md:justify-end">
+          <Link href="/cach-chung-toi-danh-gia" className="hover:text-amber-200">
+            Cách đánh giá
+          </Link>
           <Link href="/tiep-thi-lien-ket" className="hover:text-amber-200">
             Disclosure affiliate
           </Link>

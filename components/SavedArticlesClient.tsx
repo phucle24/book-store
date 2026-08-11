@@ -16,6 +16,7 @@ export function SavedArticlesClient() {
   const items = useMemo(() => parseSavedSnapshot(savedSnapshot), [savedSnapshot]);
   const groupedItems = groupSavedArticles(items);
   const latestItem = items[0];
+  const latestTagLink = latestItem?.tagLinks?.[0];
 
   function removeArticle(id: string) {
     const next = items.filter((item) => item.id !== id);
@@ -55,7 +56,7 @@ export function SavedArticlesClient() {
             hướng cùng lúc.
           </p>
           <Link
-            href={`/noi-dau/${clientSlugify(latestItem.tags[0])}`}
+            href={latestTagLink?.href || "/bai-viet"}
             className="mt-4 inline-flex rounded-full bg-stone-950 px-4 py-2 text-sm font-semibold text-white hover:bg-amber-900"
           >
             Xem cụm {latestItem.tags[0]}
@@ -169,17 +170,4 @@ function groupSavedArticles(items: SavedArticleItem[]) {
   }
 
   return Array.from(groups, ([name, groupItems]) => ({ name, items: groupItems }));
-}
-
-function clientSlugify(value: string) {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "d")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, "")
-    .trim()
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-");
 }

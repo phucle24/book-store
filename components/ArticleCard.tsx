@@ -7,13 +7,16 @@ type ArticleCardData = Article & {
 };
 
 export function ArticleCard({ article }: { article: ArticleCardData }) {
-  const tag = article.painPoints?.[0] || article.categories?.[0];
+  const painTag = article.painPoints?.[0];
+  const categoryTag = article.categories?.[0];
+  const tag = painTag || categoryTag;
+  const tagHref = painTag ? `/noi-dau/${painTag.slug}` : tag ? `/chu-de/${tag.slug}` : null;
 
   return (
     <article className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
       {tag ? (
         <Link
-          href={`/noi-dau/${tag.slug}`}
+          href={tagHref || "/bai-viet"}
           className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-800"
         >
           {tag.name}

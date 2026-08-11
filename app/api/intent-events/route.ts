@@ -78,6 +78,26 @@ function nullable(value?: string | null) {
 }
 
 function sanitizeMetadata(metadata: Record<string, unknown>) {
-  const json = JSON.stringify(metadata).slice(0, 2000);
-  return JSON.parse(json) as Prisma.InputJsonValue;
+  const entries = Object.entries(metadata).slice(0, 20).map(([key, value]) => [
+    key.slice(0, 80),
+    sanitizeMetadataValue(value),
+  ]);
+
+  return Object.fromEntries(entries) as Prisma.InputJsonValue;
+}
+
+function sanitizeMetadataValue(value: unknown): Prisma.InputJsonValue {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.slice(0, 300);
+  if (typeof value === "number" || typeof value === "boolean") return value;
+  if (Array.isArray(value)) return value.slice(0, 20).map(sanitizeMetadataValue);
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .slice(0, 10)
+        .map(([key, item]) => [key.slice(0, 80), sanitizeMetadataValue(item)]),
+    ) as Prisma.InputJsonValue;
+  }
+
+  return String(value).slice(0, 300);
 }

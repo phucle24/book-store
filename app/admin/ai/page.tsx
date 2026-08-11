@@ -3,7 +3,7 @@ import { AdminNotice } from "@/components/AdminNotice";
 import { AdminShell } from "@/components/AdminShell";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@prisma/client";
+import { BookStatus, type Prisma } from "@prisma/client";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +14,14 @@ export default async function AdminAiPage({
 }) {
   await requireAdmin();
   const params = await searchParams;
-  const [painPoints, audiences, categories, recentResearchRuns, selectedResearchRun] = await Promise.all([
+  const [
+    painPoints,
+    audiences,
+    categories,
+    recentResearchRuns,
+    selectedResearchRun,
+    quickDraftSuggestions,
+  ] = await Promise.all([
     prisma.painPoint.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.audience.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.category.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -37,6 +44,20 @@ export default async function AdminAiPage({
           },
         })
       : null,
+    prisma.book.findMany({
+      where: {
+        status: BookStatus.ACTIVE,
+        shopeeAffiliateUrl: { not: null },
+      },
+      orderBy: [{ updatedAt: "desc" }],
+      take: 8,
+      include: {
+        categories: { take: 1, select: { id: true, name: true } },
+        painPoints: { take: 1, select: { id: true, name: true } },
+        audiences: { take: 1, select: { id: true, name: true } },
+        _count: { select: { articles: true } },
+      },
+    }),
   ]);
 
   return (
@@ -51,9 +72,53 @@ export default async function AdminAiPage({
         audiences={audiences}
         selectedRun={selectedResearchRun ? mapResearchRun(selectedResearchRun) : null}
         recentRuns={recentResearchRuns.map(mapResearchRun)}
+        quickDraftSuggestions={quickDraftSuggestions.map(mapQuickDraftSuggestion)}
       />
     </AdminShell>
   );
+}
+
+type QuickDraftSuggestionWithRelations = Prisma.BookGetPayload<{
+  include: {
+    categories: { take: 1; select: { id: true; name: true } };
+    painPoints: { take: 1; select: { id: true; name: true } };
+    audiences: { take: 1; select: { id: true; name: true } };
+    _count: { select: { articles: true } };
+  };
+}>;
+
+function mapQuickDraftSuggestion(book: QuickDraftSuggestionWithRelations) {
+  const painPoint = book.painPoints[0] || null;
+  const audience = book.audiences[0] || null;
+  const category = book.categories[0] || null;
+
+  return {
+    id: book.id,
+    title: book.title,
+    author: book.author,
+    publisher: book.publisher,
+    affiliateUrl: book.shopeeAffiliateUrl,
+    articleCount: book._count.articles,
+    category,
+    painPoint,
+    audience,
+    manualBookData: [
+      `Tên sách: ${book.title}`,
+      `Tác giả: ${book.author}`,
+      book.publisher ? `Nhà xuất bản: ${book.publisher}` : "",
+      `Mô tả hiện có: ${book.description}`,
+      book.pros.length ? `Điểm mạnh: ${book.pros.join("; ")}` : "",
+      book.cons.length ? `Điểm hạn chế: ${book.cons.join("; ")}` : "",
+      book.keyLessons.length ? `Một vài ý chính: ${book.keyLessons.join("; ")}` : "",
+      book.suitableFor.length ? `Phù hợp với: ${book.suitableFor.join("; ")}` : "",
+      book.notSuitableFor.length ? `Không phù hợp với: ${book.notSuitableFor.join("; ")}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    focusKeyword: painPoint
+      ? `review ${book.title} cho người đang ${painPoint.name.toLowerCase()}`
+      : `review ${book.title}`,
+  };
 }
 
 type ResearchRunWithRelations = Prisma.ResearchRunGetPayload<{

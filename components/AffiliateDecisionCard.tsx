@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { Book } from "@prisma/client";
 import { AffiliateButton } from "@/components/AffiliateButton";
+import { BookCover } from "@/components/BookCover";
 import { DisclosureBox } from "@/components/DisclosureBox";
 
 type ReadBeforeBuyingArticle = {
@@ -28,18 +29,25 @@ export function AffiliateDecisionCard({
 
   return (
     <section className="mx-auto mt-8 max-w-3xl overflow-hidden rounded-3xl border border-amber-200 bg-white shadow-sm">
-      <div className="bg-gradient-to-br from-amber-50 via-[#fffaf2] to-rose-50 p-5 sm:p-6">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">
-          Trước khi bấm mua
-        </p>
-        <h2 className="mt-2 text-2xl font-semibold text-stone-950">
-          {book.title} có đáng để bạn cân nhắc lúc này không?
-        </h2>
-        <p className="mt-3 text-sm leading-7 text-stone-700">
-          Nếu bài viết này đúng với giai đoạn của bạn, hãy xem quyết định mua
-          như một bước đọc tiếp, không phải một lời hứa rằng sách sẽ thay đổi mọi
-          thứ.
-        </p>
+      <div className="grid gap-5 bg-gradient-to-br from-amber-50 via-[#fffaf2] to-rose-50 p-5 sm:p-6 md:grid-cols-[5.5rem_1fr]">
+        <BookCover
+          title={book.title}
+          coverImage={book.coverImage}
+          className="relative flex h-32 w-24 items-center justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-amber-100 via-stone-100 to-emerald-100 px-3 text-center text-xs font-semibold text-stone-700"
+        />
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">
+            Trước khi bấm mua
+          </p>
+          <h2 className="mt-2 text-2xl font-semibold text-stone-950">
+            {book.title} có đáng để bạn cân nhắc lúc này không?
+          </h2>
+          <p className="mt-3 text-sm leading-7 text-stone-700">
+            Nếu bài viết này đúng với giai đoạn của bạn, hãy xem quyết định mua
+            như một bước đọc tiếp, không phải một lời hứa rằng sách sẽ thay đổi mọi
+            thứ.
+          </p>
+        </div>
       </div>
 
       {bestFitReaders.length ? (

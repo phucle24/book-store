@@ -1,5 +1,6 @@
 import type { AffiliateLink, Book, PainPoint } from "@prisma/client";
 import { AffiliateButton } from "@/components/AffiliateButton";
+import { BookCover } from "@/components/BookCover";
 import { DisclosureBox } from "@/components/DisclosureBox";
 import { HighlightText } from "@/components/HighlightText";
 
@@ -39,7 +40,16 @@ export function TopListQuickGuide({
           <tbody className="divide-y divide-stone-200">
             {books.map((book) => (
               <tr key={book.id} className="align-top">
-                <td className="px-4 py-4 font-semibold text-stone-950">{book.title}</td>
+                <td className="px-4 py-4 font-semibold text-stone-950">
+                  <div className="flex items-center gap-3">
+                    <BookCover
+                      title={book.title}
+                      coverImage={book.coverImage}
+                      className="relative flex h-16 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-amber-100 via-stone-100 to-emerald-100 px-2 text-center text-[0.62rem] font-semibold text-stone-700"
+                    />
+                    <span>{book.title}</span>
+                  </div>
+                </td>
                 <td className="px-4 py-4 leading-6 text-stone-700">
                   <HighlightText text={choiceLine(book).fit} keywords={highlightKeywords} />
                 </td>
@@ -64,7 +74,17 @@ export function TopListQuickGuide({
       <div className="mt-5 grid gap-3 md:hidden">
         {books.map((book) => (
           <article key={book.id} className="rounded-2xl border border-stone-200 bg-stone-50 p-4">
-            <h3 className="font-semibold text-stone-950">{book.title}</h3>
+            <div className="flex gap-3">
+              <BookCover
+                title={book.title}
+                coverImage={book.coverImage}
+                className="relative flex h-20 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-amber-100 via-stone-100 to-emerald-100 px-2 text-center text-[0.62rem] font-semibold text-stone-700"
+              />
+              <div>
+                <h3 className="font-semibold text-stone-950">{book.title}</h3>
+                <p className="mt-1 text-xs text-stone-500">{book.author}</p>
+              </div>
+            </div>
             <p className="mt-2 text-sm leading-6 text-stone-700">
               <HighlightText text={choiceLine(book).fit} keywords={highlightKeywords} />
             </p>
@@ -81,6 +101,9 @@ export function TopListQuickGuide({
             </div>
           </article>
         ))}
+      </div>
+      <div className="mt-5">
+        <DisclosureBox />
       </div>
     </section>
   );
@@ -181,6 +204,9 @@ export function TopListSituationPicker({
             </div>
           </div>
         ))}
+      </div>
+      <div className="mt-5">
+        <DisclosureBox />
       </div>
     </section>
   );

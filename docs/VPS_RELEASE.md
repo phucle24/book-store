@@ -16,7 +16,7 @@ npx prisma migrate status
 npm run release:check
 ```
 
-`npm run release:check` expects production-like environment variables. It fails if `NEXT_PUBLIC_SITE_URL` still points to localhost, secrets are weak, or launch content is missing required SEO/byline fields.
+`npm run release:check` expects production-like environment variables. It fails if `NEXT_PUBLIC_SITE_URL` still points to localhost, secrets are weak, launch content is missing required SEO/byline fields, or any active affiliate link is still a demo/search URL.
 
 Do not run `prisma migrate dev` against production.
 
@@ -73,6 +73,8 @@ DATABASE_URL="Neon pooled connection string"
 DIRECT_URL="Neon direct connection string"
 ADMIN_EMAIL="real-admin-email"
 ADMIN_PASSWORD="long-random-password"
+SESSION_SECRET="long-random-session-secret-at-least-32-characters"
+IP_HASH_SALT="long-random-ip-hash-salt-at-least-32-characters"
 NEXT_PUBLIC_SITE_URL="https://yourdomain.com"
 NEXT_PUBLIC_SITE_NAME="Trạm Đọc Một Chút"
 CRON_SECRET="long-random-secret-at-least-32-characters"
@@ -91,6 +93,8 @@ Rules:
 - Use Neon pooled connection string for `DATABASE_URL`.
 - Use Neon direct connection string for `DIRECT_URL`.
 - Keep `ADMIN_PASSWORD` long and random.
+- Keep `SESSION_SECRET` separate from `ADMIN_PASSWORD`.
+- Keep `IP_HASH_SALT` separate from `ADMIN_PASSWORD`.
 - Keep `CRON_SECRET` at least 32 random characters.
 - `NEXT_PUBLIC_SITE_URL` must be the final HTTPS domain.
 
@@ -215,6 +219,7 @@ Manual checks:
 - Search page works for a pain query.
 - Scheduled article stays hidden until cron publishes it.
 - AI Autopilot shows a friendly error if API keys are missing.
+- `/admin/system-status` reports Database, cron secret, AI configuration, Google verification and demo affiliate links without exposing secrets.
 
 ## 11. Google Search Console
 

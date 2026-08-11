@@ -30,6 +30,7 @@ export default async function AdminArticlesPage({
       painPoints: true,
       audiences: true,
       faqs: true,
+      sources: true,
       books: { include: { book: true } },
       _count: { select: { clickEvents: true, pageViews: true } },
     },

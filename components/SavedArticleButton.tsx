@@ -11,6 +11,7 @@ export type SavedArticleItem = {
   readingTime: number;
   savedAt?: string;
   tags?: string[];
+  tagLinks?: { name: string; href: string }[];
 };
 
 const storageKey = "tram-doc-saved-articles";

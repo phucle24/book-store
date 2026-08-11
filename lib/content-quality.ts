@@ -17,7 +17,10 @@ type ContentQualityArticle = {
   voiceTone?: string | null;
   reviewInsightId?: string | null;
   clusterId?: string | null;
+  verdictScore?: number | null;
+  verdictSummary?: string | null;
   faqs?: RelationItem[];
+  sources?: RelationItem[];
   books?: BookRelation[];
   painPoints?: RelationItem[];
   audiences?: RelationItem[];
@@ -46,6 +49,7 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
       content,
     );
   const contentLower = content.toLocaleLowerCase("vi");
+  const bannedPhrase = findBannedAiPhrase(contentLower);
   const introText = firstWords([article?.title || "", article?.excerpt || "", content].join("\n"), 200);
   const painSignals =
     article?.painPoints?.flatMap((item) => [item.name || "", item.slug || ""]).filter(Boolean) || [];
@@ -71,6 +75,14 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
       label: "Có focus keyword",
       ok: Boolean(article?.focusKeyword?.trim()),
       severity: "warning",
+    },
+    {
+      label: "Có verdict biên tập",
+      ok:
+        type !== ArticleType.REVIEW && type !== ArticleType.STORY
+          ? true
+          : typeof article?.verdictScore === "number" && Boolean(article?.verdictSummary?.trim()),
+      severity: "required",
     },
     {
       label: "Có bút danh biên tập",
@@ -129,6 +141,15 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
           : Boolean(article?.faqs?.length),
       severity: "warning",
       meta: `${article?.faqs?.length || 0} FAQ`,
+    },
+    {
+      label: "Có nguồn hoặc ghi chú biên tập",
+      ok:
+        type !== ArticleType.REVIEW && type !== ArticleType.STORY
+          ? true
+          : Boolean(article?.sources?.length || article?.reviewInsightId),
+      severity: "required",
+      meta: article?.reviewInsightId ? "Có ReviewInsight" : `${article?.sources?.length || 0} nguồn`,
     },
     {
       label: "Review/story có sách chính",
@@ -203,6 +224,28 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
       ok: !hasLayoutCtaInMarkdown,
       severity: "warning",
     },
+    {
+      label: "Không dùng cụm sáo rỗng kiểu AI",
+      ok: !bannedPhrase,
+      severity: "warning",
+      meta: bannedPhrase || undefined,
+    },
+    {
+      label: "Nhịp câu có biến thiên tự nhiên",
+      ok: sentenceLengthStdDev(content) >= 5 || wordCount < 120,
+      severity: "warning",
+      meta: `${sentenceLengthStdDev(content).toFixed(1)} độ lệch`,
+    },
+    {
+      label: "Có chi tiết cụ thể kiểm chứng được",
+      ok: hasConcreteDetail(content),
+      severity: "warning",
+    },
+    {
+      label: "Có giọng người viết ở mức vừa đủ",
+      ok: /\b(tôi|mình|chúng tôi)\b/i.test(content),
+      severity: "warning",
+    },
   ];
 
   if (type === ArticleType.TOP_LIST) {
@@ -248,6 +291,44 @@ function countHeadings(content: string) {
 function countInternalLinks(content: string) {
   const matches = content.match(/\]\(\/(bai-viet|sach|noi-dau|chu-de|doi-tuong)\//g);
   return matches?.length || 0;
+}
+
+function findBannedAiPhrase(contentLower: string) {
+  const phrases = [
+    "trong thời đại ngày nay",
+    "không thể phủ nhận rằng",
+    "chìa khóa thành công",
+    "hãy cùng khám phá",
+    "đắm chìm",
+    "hành trình khám phá",
+    "tóm lại",
+  ];
+
+  return phrases.find((phrase) => contentLower.includes(phrase)) || null;
+}
+
+function sentenceLengthStdDev(content: string) {
+  const lengths = content
+    .split(/[.!?。！？\n]+/)
+    .map((sentence) => sentence.trim().split(/\s+/).filter(Boolean).length)
+    .filter((length) => length >= 4);
+
+  if (lengths.length < 4) return 999;
+
+  const average = lengths.reduce((sum, length) => sum + length, 0) / lengths.length;
+  const variance =
+    lengths.reduce((sum, length) => sum + (length - average) ** 2, 0) / lengths.length;
+
+  return Math.sqrt(variance);
+}
+
+function hasConcreteDetail(content: string) {
+  return (
+    /\b\d{2,4}\b/.test(content) ||
+    /chương\s+\d+/i.test(content) ||
+    /trang\s+\d+/i.test(content) ||
+    /xuất bản|tái bản|nhà xuất bản|tác giả/i.test(content)
+  );
 }
 
 function firstWords(content: string, count: number) {

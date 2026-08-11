@@ -18,6 +18,7 @@ export default async function ContentAuditPage() {
       audiences: true,
       books: { include: { book: true } },
       faqs: true,
+      sources: true,
       _count: { select: { pageViews: true, clickEvents: true } },
     },
   });

@@ -5,6 +5,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   ArticleBookRole,
+  ArticleSourceKind,
   ArticleStatus,
   ArticleType,
   BookStatus,
@@ -12,6 +13,7 @@ import {
 } from "@prisma/client";
 import { z } from "zod";
 import { ADMIN_COOKIE_NAME, createAdminSessionToken } from "@/lib/auth-token";
+import { requireAdmin } from "@/lib/auth";
 import {
   articleAuthorData,
   getEditorialPersonaBySlug,
@@ -22,6 +24,7 @@ import { prisma } from "@/lib/prisma";
 import { rateLimit } from "@/lib/rate-limit";
 import { hashIp } from "@/lib/hash";
 import { slugify } from "@/lib/slugify";
+import { getArticleQualitySummary } from "@/lib/content-quality";
 
 const optionalUrlSchema = z
   .string()
@@ -48,6 +51,11 @@ const bookSchema = z.object({
   keyLessons: z.string().optional(),
   suitableFor: z.string().optional(),
   notSuitableFor: z.string().optional(),
+  editorialScore: z.string().optional(),
+  practicalScore: z.string().optional(),
+  depthScore: z.string().optional(),
+  readabilityScore: z.string().optional(),
+  valueScore: z.string().optional(),
 });
 
 const articleSchema = z
@@ -63,10 +71,13 @@ const articleSchema = z
     seoDescription: z.string().trim().optional(),
     focusKeyword: z.string().trim().optional(),
     authorSlug: z.string().trim().optional(),
+    verdictScore: z.string().trim().optional(),
+    verdictSummary: z.string().trim().optional(),
     clusterId: z.string().trim().optional(),
     publishedAt: z.string().trim().optional(),
     scheduledAt: z.string().trim().optional(),
     faqs: z.string().optional(),
+    sources: z.string().optional(),
   })
   .superRefine((data, context) => {
     if (data.status !== "PUBLISHED" && data.status !== "SCHEDULED") return;
@@ -159,6 +170,7 @@ export async function logoutAction() {
 }
 
 export async function createBookAction(formData: FormData) {
+  await requireAdmin();
   const path = "/admin/books/new";
   const data = parseBookForm(formData, path);
 
@@ -178,6 +190,8 @@ export async function createBookAction(formData: FormData) {
         keyLessons: data.keyLessons,
         suitableFor: data.suitableFor,
         notSuitableFor: data.notSuitableFor,
+        editorialScore: data.editorialScore,
+        scoreBreakdown: data.scoreBreakdown,
         categories: { connect: selectedIds(formData, "categoryIds").map((id) => ({ id })) },
         painPoints: { connect: selectedIds(formData, "painPointIds").map((id) => ({ id })) },
         audiences: { connect: selectedIds(formData, "audienceIds").map((id) => ({ id })) },
@@ -193,6 +207,7 @@ export async function createBookAction(formData: FormData) {
 }
 
 export async function updateBookAction(formData: FormData) {
+  await requireAdmin();
   const id = requiredId(formData);
   const path = `/admin/books/${id}/edit`;
   const data = parseBookForm(formData, path);
@@ -214,6 +229,8 @@ export async function updateBookAction(formData: FormData) {
         keyLessons: data.keyLessons,
         suitableFor: data.suitableFor,
         notSuitableFor: data.notSuitableFor,
+        editorialScore: data.editorialScore,
+        scoreBreakdown: data.scoreBreakdown,
         categories: { set: selectedIds(formData, "categoryIds").map((item) => ({ id: item })) },
         painPoints: { set: selectedIds(formData, "painPointIds").map((item) => ({ id: item })) },
         audiences: { set: selectedIds(formData, "audienceIds").map((item) => ({ id: item })) },
@@ -229,6 +246,7 @@ export async function updateBookAction(formData: FormData) {
 }
 
 export async function deleteBookAction(formData: FormData) {
+  await requireAdmin();
   const id = requiredId(formData);
   await prisma.book.delete({ where: { id } });
   revalidateAdmin();
@@ -236,12 +254,13 @@ export async function deleteBookAction(formData: FormData) {
 }
 
 export async function createArticleAction(formData: FormData) {
+  await requireAdmin();
   const path = "/admin/articles/new";
   const data = parseArticleForm(formData, path);
   const author = articleAuthorForForm(data, formData);
   const mainBookId = textValue(formData, "mainBookId");
   const relatedBookIds = orderedRelatedBookIds(formData);
-  validateArticleRelations(data, mainBookId, relatedBookIds, path);
+  validateArticleRelations(data, mainBookId, relatedBookIds, formData, path);
 
   try {
     const article = await prisma.article.create({
@@ -256,6 +275,8 @@ export async function createArticleAction(formData: FormData) {
         seoTitle: nullable(data.seoTitle),
         seoDescription: nullable(data.seoDescription),
         focusKeyword: nullable(data.focusKeyword),
+        verdictScore: data.verdictScore,
+        verdictSummary: nullable(data.verdictSummary),
         ...author,
         clusterId: nullable(data.clusterId),
         readingTime: readingTimeFromMarkdown(data.content),
@@ -268,6 +289,7 @@ export async function createArticleAction(formData: FormData) {
     });
     await syncArticleBooks(article.id, data.type, mainBookId, relatedBookIds);
     await syncArticleFaqs(article.id, data.faqs);
+    await syncArticleSources(article.id, data.sources);
     await syncArticleAffiliateLink(article.id, data.title, data.slug, mainBookId);
   } catch (error) {
     handlePrismaError(error, path);
@@ -278,13 +300,14 @@ export async function createArticleAction(formData: FormData) {
 }
 
 export async function updateArticleAction(formData: FormData) {
+  await requireAdmin();
   const id = requiredId(formData);
   const path = `/admin/articles/${id}/edit`;
   const data = parseArticleForm(formData, path);
   const author = articleAuthorForForm(data, formData);
   const mainBookId = textValue(formData, "mainBookId");
   const relatedBookIds = orderedRelatedBookIds(formData);
-  validateArticleRelations(data, mainBookId, relatedBookIds, path);
+  validateArticleRelations(data, mainBookId, relatedBookIds, formData, path);
 
   try {
     await prisma.article.update({
@@ -300,6 +323,8 @@ export async function updateArticleAction(formData: FormData) {
         seoTitle: nullable(data.seoTitle),
         seoDescription: nullable(data.seoDescription),
         focusKeyword: nullable(data.focusKeyword),
+        verdictScore: data.verdictScore,
+        verdictSummary: nullable(data.verdictSummary),
         ...author,
         clusterId: nullable(data.clusterId),
         readingTime: readingTimeFromMarkdown(data.content),
@@ -312,6 +337,7 @@ export async function updateArticleAction(formData: FormData) {
     });
     await syncArticleBooks(id, data.type, mainBookId, relatedBookIds);
     await syncArticleFaqs(id, data.faqs);
+    await syncArticleSources(id, data.sources);
     await syncArticleAffiliateLink(id, data.title, data.slug, mainBookId);
   } catch (error) {
     handlePrismaError(error, path);
@@ -322,6 +348,7 @@ export async function updateArticleAction(formData: FormData) {
 }
 
 export async function deleteArticleAction(formData: FormData) {
+  await requireAdmin();
   const id = requiredId(formData);
   await prisma.article.delete({ where: { id } });
   revalidateAdmin();
@@ -329,6 +356,7 @@ export async function deleteArticleAction(formData: FormData) {
 }
 
 export async function createCategoryAction(formData: FormData) {
+  await requireAdmin();
   const data = parseCategoryForm(formData, "/admin/categories");
   try {
     await prisma.category.create({ data });
@@ -340,6 +368,7 @@ export async function createCategoryAction(formData: FormData) {
 }
 
 export async function updateCategoryAction(formData: FormData) {
+  await requireAdmin();
   const id = requiredId(formData);
   const data = parseCategoryForm(formData, "/admin/categories");
   try {
@@ -352,12 +381,14 @@ export async function updateCategoryAction(formData: FormData) {
 }
 
 export async function deleteCategoryAction(formData: FormData) {
+  await requireAdmin();
   await prisma.category.delete({ where: { id: requiredId(formData) } });
   revalidateAdmin();
   redirectWithSuccess("/admin/categories", "Đã xóa chủ đề.");
 }
 
 export async function createPainPointAction(formData: FormData) {
+  await requireAdmin();
   const data = parseSimpleTaxonomyForm(formData, "/admin/pain-points");
   try {
     await prisma.painPoint.create({ data });
@@ -369,6 +400,7 @@ export async function createPainPointAction(formData: FormData) {
 }
 
 export async function updatePainPointAction(formData: FormData) {
+  await requireAdmin();
   const id = requiredId(formData);
   const data = parseSimpleTaxonomyForm(formData, "/admin/pain-points");
   try {
@@ -381,12 +413,14 @@ export async function updatePainPointAction(formData: FormData) {
 }
 
 export async function deletePainPointAction(formData: FormData) {
+  await requireAdmin();
   await prisma.painPoint.delete({ where: { id: requiredId(formData) } });
   revalidateAdmin();
   redirectWithSuccess("/admin/pain-points", "Đã xóa nỗi đau.");
 }
 
 export async function createAudienceAction(formData: FormData) {
+  await requireAdmin();
   const data = parseSimpleTaxonomyForm(formData, "/admin/audiences");
   try {
     await prisma.audience.create({ data });
@@ -398,6 +432,7 @@ export async function createAudienceAction(formData: FormData) {
 }
 
 export async function updateAudienceAction(formData: FormData) {
+  await requireAdmin();
   const id = requiredId(formData);
   const data = parseSimpleTaxonomyForm(formData, "/admin/audiences");
   try {
@@ -410,6 +445,7 @@ export async function updateAudienceAction(formData: FormData) {
 }
 
 export async function deleteAudienceAction(formData: FormData) {
+  await requireAdmin();
   await prisma.audience.delete({ where: { id: requiredId(formData) } });
   revalidateAdmin();
   redirectWithSuccess("/admin/audiences", "Đã xóa đối tượng.");
@@ -463,6 +499,11 @@ function parseBookForm(formData: FormData, path: string) {
       "keyLessons",
       "suitableFor",
       "notSuitableFor",
+      "editorialScore",
+      "practicalScore",
+      "depthScore",
+      "readabilityScore",
+      "valueScore",
     ]),
   );
 
@@ -482,6 +523,13 @@ function parseBookForm(formData: FormData, path: string) {
     keyLessons: textList(parsed.data.keyLessons),
     suitableFor: textList(parsed.data.suitableFor),
     notSuitableFor: textList(parsed.data.notSuitableFor),
+    editorialScore: scoreValue(parsed.data.editorialScore),
+    scoreBreakdown: scoreBreakdown({
+      practical: parsed.data.practicalScore,
+      depth: parsed.data.depthScore,
+      readability: parsed.data.readabilityScore,
+      value: parsed.data.valueScore,
+    }),
   };
 }
 
@@ -499,10 +547,13 @@ function parseArticleForm(formData: FormData, path: string) {
       "seoDescription",
       "focusKeyword",
       "authorSlug",
+      "verdictScore",
+      "verdictSummary",
       "clusterId",
       "publishedAt",
       "scheduledAt",
       "faqs",
+      "sources",
     ]),
   );
 
@@ -518,6 +569,7 @@ function parseArticleForm(formData: FormData, path: string) {
     slug,
     type: parsed.data.type as ArticleType,
     status: parsed.data.status as ArticleStatus,
+    verdictScore: scoreValue(parsed.data.verdictScore),
   };
 }
 
@@ -525,6 +577,7 @@ function validateArticleRelations(
   data: ReturnType<typeof parseArticleForm>,
   mainBookId: string,
   relatedBookIds: string[],
+  formData: FormData,
   path: string,
 ) {
   if (data.status !== ArticleStatus.PUBLISHED && data.status !== ArticleStatus.SCHEDULED) {
@@ -540,6 +593,52 @@ function validateArticleRelations(
     !mainBookId
   ) {
     redirectWithError(path, "Bài review/story cần chọn sách chính trước khi publish.");
+  }
+
+  const quality = getArticleQualitySummary({
+    ...data,
+    faqs: parseFaqs(data.faqs).map((faq) => ({ name: faq.question })),
+    sources: parseArticleSources(data.sources).map((source) => ({ name: source.title })),
+    painPoints: selectedIds(formData, "painPointIds").map((id) => ({ id })),
+    audiences: selectedIds(formData, "audienceIds").map((id) => ({ id })),
+    books: [
+      ...(mainBookId ? [{ role: ArticleBookRole.MAIN }] : []),
+      ...relatedBookIds.map(() => ({ role: ArticleBookRole.RECOMMENDED })),
+    ],
+  });
+  const blockingLabels = new Set([
+    "Có SEO title",
+    "Có SEO description",
+    "Có focus keyword",
+    "Có verdict biên tập",
+    "Có ít nhất 1 pain point",
+    "Có ít nhất 1 audience",
+    "Có sách liên quan",
+    "Top list có ít nhất 3 sách",
+    "Content top-list tối thiểu 1.500 từ",
+    "Content tối thiểu 900 từ",
+    "Có FAQ cho bài review/top-list",
+    "Có nguồn hoặc ghi chú biên tập",
+    "Review/story có sách chính",
+    "Có section sách nói về gì",
+    "Có review chi tiết/góc nhìn sau khi đọc",
+    "Có phần ai nên đọc",
+    "Có phần ai không nên đọc",
+    "Có phần điểm hạn chế",
+    "Có ít nhất 2 internal links theo journey",
+    "Không nhắc review Shopee khi chưa có ReviewInsight",
+    "CTA không nằm trong markdown",
+    "Top-list có bảng chọn nhanh hoặc bảng markdown",
+  ]);
+  const blockers = quality.checks
+    .filter((check) => !check.ok && blockingLabels.has(check.label))
+    .map((check) => check.label);
+
+  if (blockers.length) {
+    redirectWithError(
+      path,
+      `Chưa thể ${data.status === ArticleStatus.SCHEDULED ? "lên lịch" : "publish"}: ${blockers.slice(0, 3).join(", ")}${blockers.length > 3 ? ` và ${blockers.length - 3} mục khác` : ""}.`,
+    );
   }
 }
 
@@ -615,6 +714,70 @@ function parseFaqs(value?: string) {
       return { question, answer, order: index + 1 };
     })
     .filter((item): item is { question: string; answer: string; order: number } => Boolean(item));
+}
+
+function parseArticleSources(value?: string) {
+  return (value || "")
+    .split(/\r?\n/)
+    .map((line, index) => {
+      const [rawTitle, rawUrl, rawKind, rawNote] = line.split("|").map((item) => item.trim());
+      const title = rawTitle || rawUrl;
+      if (!title) return null;
+
+      const url = rawUrl && isValidUrl(rawUrl) ? rawUrl : null;
+      const kind = sourceKind(rawKind);
+      const domain = url ? new URL(url).hostname.replace(/^www\./, "") : null;
+
+      return {
+        title,
+        url,
+        domain,
+        kind,
+        note: nullable(rawNote),
+        order: index + 1,
+      };
+    })
+    .filter(
+      (
+        item,
+      ): item is {
+        title: string;
+        url: string | null;
+        domain: string | null;
+        kind: ArticleSourceKind;
+        note: string | null;
+        order: number;
+      } => Boolean(item),
+    );
+}
+
+function sourceKind(value?: string) {
+  const normalized = value?.trim().toUpperCase();
+  if (
+    normalized === ArticleSourceKind.BUYER_REVIEWS ||
+    normalized === ArticleSourceKind.PUBLISHER ||
+    normalized === ArticleSourceKind.EDITORIAL_NOTE ||
+    normalized === ArticleSourceKind.REFERENCE
+  ) {
+    return normalized;
+  }
+
+  return ArticleSourceKind.REFERENCE;
+}
+
+function scoreValue(value?: string | null) {
+  if (!value?.trim()) return null;
+  const score = Number(value);
+  if (!Number.isFinite(score)) return null;
+  return Math.min(Math.max(score, 0), 5);
+}
+
+function scoreBreakdown(values: Record<string, string | undefined>) {
+  const entries = Object.entries(values)
+    .map(([key, value]) => [key, scoreValue(value)] as const)
+    .filter((entry): entry is readonly [string, number] => typeof entry[1] === "number");
+
+  return entries.length ? Object.fromEntries(entries) : Prisma.JsonNull;
 }
 
 function nullable(value?: string) {
@@ -752,6 +915,16 @@ async function syncArticleFaqs(articleId: string, faqsText?: string) {
   }
 }
 
+async function syncArticleSources(articleId: string, sourcesText?: string) {
+  await prisma.articleSource.deleteMany({ where: { articleId } });
+  const sources = parseArticleSources(sourcesText);
+  if (sources.length) {
+    await prisma.articleSource.createMany({
+      data: sources.map((source) => ({ ...source, articleId })),
+    });
+  }
+}
+
 async function syncArticleAffiliateLink(
   articleId: string,
   title: string,
@@ -868,6 +1041,14 @@ function redirectWithSuccess(path: string, message: string): never {
 
 function revalidateAdmin() {
   revalidatePath("/");
+  revalidatePath("/sitemap.xml");
+  revalidatePath("/sach");
+  revalidatePath("/sach/[slug]", "page");
+  revalidatePath("/bai-viet/[slug]", "page");
+  revalidatePath("/noi-dau/[slug]", "page");
+  revalidatePath("/chu-de/[slug]", "page");
+  revalidatePath("/doi-tuong/[slug]", "page");
+  revalidatePath("/cum-noi-dung/[slug]", "page");
   revalidatePath("/admin");
   revalidatePath("/admin/books");
   revalidatePath("/admin/articles");

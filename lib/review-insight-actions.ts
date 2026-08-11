@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import {
   ArticleBookRole,
+  ArticleSourceKind,
   ArticleStatus,
   ArticleType,
   BookStatus,
@@ -251,6 +252,17 @@ export async function generateArticleFromReviewInsightAction(formData: FormData)
             isActive: true,
           },
         },
+      },
+    });
+
+    await prisma.articleSource.create({
+      data: {
+        articleId: article.id,
+        title: "Review người mua được admin paste thủ công",
+        domain: "Shopee",
+        kind: ArticleSourceKind.BUYER_REVIEWS,
+        note: `${insight.reviewCount} review được dùng để rút insight; bài viết không trích nguyên văn review.`,
+        order: 1,
       },
     });
 
@@ -507,6 +519,15 @@ function jsonStringArray(value: unknown) {
 }
 
 function revalidateReviewInsightPaths() {
+  revalidatePath("/");
+  revalidatePath("/sitemap.xml");
+  revalidatePath("/bai-viet");
+  revalidatePath("/bai-viet/[slug]", "page");
+  revalidatePath("/sach");
+  revalidatePath("/sach/[slug]", "page");
+  revalidatePath("/noi-dau/[slug]", "page");
+  revalidatePath("/chu-de/[slug]", "page");
+  revalidatePath("/doi-tuong/[slug]", "page");
   revalidatePath("/admin");
   revalidatePath("/admin/review-insights");
   revalidatePath("/admin/articles");

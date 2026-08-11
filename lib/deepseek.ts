@@ -99,6 +99,21 @@ export type AutopilotArticleInput = AutopilotBookDataInput & {
   painPointName?: string | null;
   audienceName?: string | null;
   tone?: string | null;
+  contentMemory?: ContentMemoryExample[];
+};
+
+export type ContentMemoryExample = {
+  title: string;
+  articleType: string;
+  voiceTone?: string | null;
+  authorName?: string | null;
+  excerpt: string;
+  opening: string;
+  headings: string[];
+  whyItWorks: string[];
+  verdictScore?: number | null;
+  clickCount?: number;
+  viewCount?: number;
 };
 
 const editorSystemPrompt =
@@ -118,6 +133,10 @@ const sharedRules = [
   "Nội dung phải có góc nhìn riêng, phân tích theo nỗi đau người đọc.",
   "Ưu tiên kết thúc content bằng H2 “Nên đọc cuốn này như thế nào” để layout đặt block câu hỏi đọc tiếp bên dưới.",
   "Không bịa rằng tác giả nói điều không có trong dữ liệu.",
+  "Tránh cụm sáo rỗng: “trong thời đại ngày nay”, “không thể phủ nhận rằng”, “chìa khóa thành công”, “hãy cùng khám phá”, “đắm chìm”, “hành trình khám phá”, “tóm lại”.",
+  "Nhịp câu phải có biến thiên tự nhiên: câu ngắn xen câu dài, không đều đều như máy.",
+  "Mỗi bài nên có ít nhất 1 chi tiết cụ thể kiểm chứng được từ dữ liệu: tác giả, nhà xuất bản, số trang, tên chương, năm xuất bản hoặc một ý chính rõ ràng.",
+  "Có thể dùng “mình”, “tôi” hoặc “chúng tôi” vừa đủ để tạo giọng người viết, nhưng không bịa trải nghiệm cá nhân.",
 ];
 
 export async function generateBrief(input: AiContentInput) {
@@ -534,11 +553,20 @@ ${JSON.stringify(input.extractedFacts, null, 2)}
 Review insight nếu có:
 ${JSON.stringify(input.reviewInsight || null, null, 2)}
 
+Content Memory từ bài tốt đang có:
+${JSON.stringify(input.contentMemory || [], null, 2)}
+
 Source notes:
 ${truncateForPrompt(input.sourceNotes)}
 
 Quy tắc chung:
 ${sharedRules.map((rule) => `- ${rule}`).join("\n")}
+
+Quy tắc học từ Content Memory:
+- Content Memory chỉ là chất liệu học cách triển khai, không được copy câu, đoạn mở bài, heading hoặc ví dụ.
+- Ưu tiên học: cách gọi đúng nỗi đau, cách mở bài cụ thể, cách đưa verdict rõ, cách giữ giọng người, cách nối sách với tình huống đọc.
+- Bài mới phải tốt hơn bài mẫu: cụ thể hơn, ít sáo rỗng hơn, verdict rõ hơn, có nhiều chi tiết kiểm chứng hơn.
+- Không lặp lại cùng một công thức mở bài giữa các bài.
 
 Output JSON hợp lệ, không markdown fence:
 {
@@ -581,6 +609,8 @@ async function complete({
   const client = new OpenAI({
     apiKey,
     baseURL,
+    maxRetries: 2,
+    timeout: 120_000,
   });
 
   const completion = await client.chat.completions.create({

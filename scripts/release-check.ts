@@ -89,6 +89,8 @@ async function main() {
   requireEnv("DIRECT_URL");
   requireEnv("ADMIN_EMAIL");
   requireSecret("ADMIN_PASSWORD", 16, ["change_me", "password", "admin"]);
+  requireSecret("SESSION_SECRET", 32, ["change_me_to_a_long_random_session_secret"]);
+  requireSecret("IP_HASH_SALT", 32, ["change_me_to_a_long_random_ip_hash_salt"]);
   requireSecret("CRON_SECRET", 32, ["change_me", "change_me_to_a_long_random_value"]);
 
   const siteUrl = requireEnv("NEXT_PUBLIC_SITE_URL");
@@ -228,7 +230,7 @@ async function checkAffiliateDestinations() {
 
   const demoLinks = links.filter((link) => isDemoAffiliateUrl(link.destinationUrl));
   if (demoLinks.length) {
-    add("warn", "Some affiliate URLs look like demo/search links", labelLinks(demoLinks));
+    add("fail", "Some affiliate URLs are still demo/search links", labelLinks(demoLinks));
   }
 }
 

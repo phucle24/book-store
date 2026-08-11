@@ -9,9 +9,10 @@ function toHex(buffer: ArrayBuffer) {
 }
 
 function getSecret() {
-  return `${process.env.ADMIN_EMAIL || "admin@example.com"}:${
-    process.env.ADMIN_PASSWORD || "change_me"
-  }`;
+  return (
+    process.env.SESSION_SECRET ||
+    `${process.env.ADMIN_EMAIL || "admin@example.com"}:${process.env.ADMIN_PASSWORD || "change_me"}`
+  );
 }
 
 async function sign(payload: string) {

@@ -5,11 +5,12 @@ import { BookCard } from "@/components/BookCard";
 import { DatabaseSetupNotice } from "@/components/DatabaseSetupNotice";
 import { PainPointCard } from "@/components/PainPointCard";
 import { SearchBar } from "@/components/SearchBar";
+import { SubscribeForm } from "@/components/SubscribeForm";
 import { isDatabaseConfigured } from "@/lib/db-ready";
 import { prisma } from "@/lib/prisma";
 import { pageMetadata } from "@/lib/seo";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 600;
 
 export const metadata = pageMetadata({
   title: "Tìm đúng cuốn sách cho giai đoạn bạn đang đi qua",
@@ -232,6 +233,10 @@ export default async function HomePage() {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="mx-auto max-w-3xl px-4 py-12 sm:px-6 lg:px-8">
+        <SubscribeForm source="homepage" />
       </section>
     </div>
   );

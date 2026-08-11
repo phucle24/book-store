@@ -4,6 +4,7 @@ import { AdminNotice } from "@/components/AdminNotice";
 import { AdminShell } from "@/components/AdminShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { requireAdmin } from "@/lib/auth";
+import { getArticleQualitySummary } from "@/lib/content-quality";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +44,7 @@ export default async function AdminDashboardPage({
     articleIntentGroups,
     topArticles,
     topBooks,
+    reviewQueueCandidates,
   ] = await Promise.all([
     prisma.article.count(),
     prisma.book.count(),
@@ -97,6 +99,18 @@ export default async function AdminDashboardPage({
       include: { _count: { select: { clickEvents: true, pageViews: true } } },
       orderBy: { clickEvents: { _count: "desc" } },
       take: 5,
+    }),
+    prisma.article.findMany({
+      where: { status: { not: ArticleStatus.ARCHIVED } },
+      orderBy: [{ scheduledAt: "asc" }, { updatedAt: "desc" }],
+      take: 40,
+      include: {
+        painPoints: true,
+        audiences: true,
+        books: true,
+        faqs: true,
+        sources: true,
+      },
     }),
   ]);
   const affiliateCtr30d = views30d ? `${((clicks30d / views30d) * 100).toFixed(1)}%` : "0%";
@@ -164,6 +178,32 @@ export default async function AdminDashboardPage({
   )
     .sort((a, b) => b[1].views - a[1].views)
     .slice(0, 6);
+  const reviewQueue = reviewQueueCandidates
+    .map((article) => {
+      const quality = getArticleQualitySummary(article);
+      const ageDays = Math.floor((now.getTime() - article.updatedAt.getTime()) / 86_400_000);
+      const scheduledSoon =
+        article.status === ArticleStatus.SCHEDULED &&
+        article.scheduledAt &&
+        article.scheduledAt.getTime() <= now.getTime() + 48 * 60 * 60 * 1000;
+      const needsReview =
+        article.status === ArticleStatus.DRAFT ||
+        article.status === ArticleStatus.REVIEW ||
+        Boolean(scheduledSoon) ||
+        (article.status === ArticleStatus.PUBLISHED &&
+          (quality.failedRequired.length > 0 || ageDays >= 120));
+
+      return {
+        article,
+        quality,
+        ageDays,
+        scheduledSoon,
+        needsReview,
+      };
+    })
+    .filter((item) => item.needsReview)
+    .sort((a, b) => queuePriority(b, now) - queuePriority(a, now))
+    .slice(0, 8);
 
   return (
     <AdminShell
@@ -197,6 +237,47 @@ export default async function AdminDashboardPage({
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
+        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm xl:col-span-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-stone-950">Cần duyệt hôm nay</h2>
+              <p className="mt-1 text-sm text-stone-600">
+                Draft mới, lịch đăng trong 48 giờ, bài đang REVIEW và bài published cần refresh.
+              </p>
+            </div>
+            <Link href="/admin/content-audit" className="text-sm font-semibold text-amber-900 hover:text-stone-950">
+              Mở content audit
+            </Link>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-2">
+            {reviewQueue.map(({ article, quality, ageDays, scheduledSoon }) => (
+              <Link
+                key={article.id}
+                href={`/admin/articles/${article.id}/edit`}
+                className="rounded-2xl border border-stone-200 bg-stone-50 p-4 transition hover:border-amber-200 hover:bg-amber-50"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span className="font-semibold leading-6 text-stone-950">{article.title}</span>
+                  <StatusBadge status={article.status} />
+                </div>
+                <p className="mt-2 text-xs leading-5 text-stone-600">
+                  {scheduledSoon
+                    ? `Sắp đăng ${article.scheduledAt?.toLocaleString("vi-VN")}`
+                    : article.status === ArticleStatus.PUBLISHED && ageDays >= 120
+                      ? `Cần refresh: đã ${ageDays} ngày chưa cập nhật`
+                      : quality.failedRequired.length
+                        ? `Thiếu: ${quality.failedRequired.slice(0, 2).map((item) => item.label).join(", ")}`
+                        : "Chờ biên tập viên duyệt nội dung"}
+                </p>
+              </Link>
+            ))}
+            {!reviewQueue.length ? (
+              <p className="rounded-2xl bg-emerald-50 px-4 py-5 text-sm text-emerald-800">
+                Hàng duyệt đang trống. Có thể tập trung vào content planner hoặc refresh bài có CTR thấp.
+              </p>
+            ) : null}
+          </div>
+        </section>
         <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold text-stone-950">Trạng thái bài viết</h2>
           <div className="mt-4 space-y-3 text-sm">
@@ -343,6 +424,23 @@ function MetricCard({ label, value }: { label: string; value: number | string })
       <p className="mt-3 text-3xl font-semibold text-stone-950">{value}</p>
     </div>
   );
+}
+
+function queuePriority(
+  item: {
+    article: { status: ArticleStatus; scheduledAt: Date | null };
+    quality: { failedRequired: unknown[] };
+    ageDays: number;
+    scheduledSoon: boolean | null;
+  },
+  now: Date,
+) {
+  if (item.scheduledSoon) return 500;
+  if (item.article.status === ArticleStatus.REVIEW) return 400;
+  if (item.quality.failedRequired.length) return 300;
+  if (item.article.status === ArticleStatus.DRAFT) return 200;
+  if (item.ageDays >= 120) return 100;
+  return item.article.scheduledAt && item.article.scheduledAt < now ? 50 : 0;
 }
 
 function CtrTable({

@@ -10,7 +10,21 @@ import {
 import { prisma } from "@/lib/prisma";
 import { pageMetadata } from "@/lib/seo";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 900;
+
+export async function generateStaticParams() {
+  const audiences = await prisma.audience.findMany({
+    where: {
+      OR: [
+        { articles: { some: { status: ArticleStatus.PUBLISHED } } },
+        { books: { some: { status: BookStatus.ACTIVE } } },
+      ],
+    },
+    select: { slug: true },
+  });
+
+  return audiences.map((audience) => ({ slug: audience.slug }));
+}
 
 export async function generateMetadata({
   params,

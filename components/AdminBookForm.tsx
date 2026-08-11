@@ -42,6 +42,15 @@ export function AdminBookForm({
             name="shopeeAffiliateUrl"
             defaultValue={book?.shopeeAffiliateUrl}
           />
+          <TextField
+            label="Điểm biên tập tổng (1-5)"
+            name="editorialScore"
+            type="number"
+            step="0.1"
+            min="0"
+            max="5"
+            defaultValue={book?.editorialScore?.toString()}
+          />
           <label className="block">
             <span className="text-sm font-medium text-stone-700">Trạng thái</span>
             <select
@@ -64,6 +73,19 @@ export function AdminBookForm({
             className="mt-2 w-full rounded-2xl border border-stone-300 px-4 py-3 text-sm leading-6 outline-none focus:border-amber-700 focus:ring-4 focus:ring-amber-100"
           />
         </label>
+      </section>
+
+      <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-stone-950">Breakdown điểm biên tập</h2>
+        <p className="mt-1 text-sm text-stone-500">
+          Thang 1-5. Đây là điểm của Trạm Đọc, không phải rating Shopee.
+        </p>
+        <div className="mt-5 grid gap-4 md:grid-cols-4">
+          <ScoreField label="Dễ thực hành" name="practicalScore" value={scoreValue(book?.scoreBreakdown, "practical")} />
+          <ScoreField label="Độ sâu" name="depthScore" value={scoreValue(book?.scoreBreakdown, "depth")} />
+          <ScoreField label="Dễ đọc" name="readabilityScore" value={scoreValue(book?.scoreBreakdown, "readability")} />
+          <ScoreField label="Giá trị so với giá" name="valueScore" value={scoreValue(book?.scoreBreakdown, "value")} />
+        </div>
       </section>
 
       <section className="grid gap-6 lg:grid-cols-3">
@@ -113,23 +135,55 @@ function TextField({
   name,
   defaultValue,
   required = false,
+  type = "text",
+  step,
+  min,
+  max,
 }: {
   label: string;
   name: string;
   defaultValue?: string | null;
   required?: boolean;
+  type?: string;
+  step?: string;
+  min?: string;
+  max?: string;
 }) {
   return (
     <label className="block">
       <span className="text-sm font-medium text-stone-700">{label}</span>
       <input
         name={name}
+        type={type}
+        step={step}
+        min={min}
+        max={max}
         required={required}
         defaultValue={defaultValue || ""}
         className="mt-2 w-full rounded-2xl border border-stone-300 px-4 py-3 text-sm outline-none focus:border-amber-700 focus:ring-4 focus:ring-amber-100"
       />
     </label>
   );
+}
+
+function ScoreField({ label, name, value }: { label: string; name: string; value?: number }) {
+  return (
+    <TextField
+      label={label}
+      name={name}
+      type="number"
+      step="0.1"
+      min="0"
+      max="5"
+      defaultValue={value?.toString()}
+    />
+  );
+}
+
+function scoreValue(value: unknown, key: string) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const score = (value as Record<string, unknown>)[key];
+  return typeof score === "number" ? score : undefined;
 }
 
 function TextareaList({

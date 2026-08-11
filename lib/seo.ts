@@ -15,18 +15,28 @@ export function pageMetadata({
   description,
   path,
   image,
+  type = "website",
+  authors,
+  publishedTime,
+  modifiedTime,
 }: {
   title: string;
   description: string;
   path: string;
   image?: string | null;
+  type?: "website" | "article";
+  authors?: string[];
+  publishedTime?: string;
+  modifiedTime?: string;
 }): Metadata {
   const absoluteTitle = title.includes(siteName) ? title : `${title} | ${siteName}`;
   const url = siteUrl(path);
+  const ogImage = image || siteUrl("/opengraph-image");
 
   return {
     title: absoluteTitle,
     description,
+    authors: authors?.map((name) => ({ name })),
     alternates: {
       canonical: url,
     },
@@ -35,14 +45,21 @@ export function pageMetadata({
       description,
       url,
       siteName,
-      type: "website",
-      images: image ? [{ url: image }] : undefined,
+      type,
+      images: [{ url: ogImage }],
+      ...(type === "article"
+        ? {
+            publishedTime,
+            modifiedTime,
+            authors,
+          }
+        : {}),
     },
     twitter: {
-      card: image ? "summary_large_image" : "summary",
+      card: "summary_large_image",
       title: absoluteTitle,
       description,
-      images: image ? [image] : undefined,
+      images: [ogImage],
     },
   };
 }

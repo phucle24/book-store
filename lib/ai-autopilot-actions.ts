@@ -1,10 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { redirect } from "next/navigation";
+import { redirect, unstable_rethrow } from "next/navigation";
 import {
   AiGenerationType,
   ArticleBookRole,
+  ArticleSourceKind,
   ArticleStatus,
   ArticleType,
   BookStatus,
@@ -14,6 +15,7 @@ import { z } from "zod";
 import { requireAdmin } from "@/lib/auth";
 import {
   analyzeShopeeReviews,
+  type ContentMemoryExample,
   DeepSeekConfigError,
   extractBookFactsFromSources,
   generateAutopilotArticle,
@@ -148,18 +150,18 @@ export async function runAiAutopilotAction(formData: FormData) {
   });
 
   if (!parsed.success) {
-    redirect(`/admin/ai?error=${encodeURIComponent(firstError(parsed.error))}`);
+    redirectAdminAi({ error: firstError(parsed.error) });
   }
 
   const input = parsed.data;
   if (["draft", "schedule", "publish"].includes(input.intent) && !input.affiliateUrl) {
-    redirect("/admin/ai?error=Thiếu affiliate URL để tạo CTA cuối bài.");
+    redirectAdminAi({ error: "Thiếu affiliate URL để tạo CTA cuối bài." });
   }
 
   try {
     if (input.intent === "research") {
       const run = await performResearchRun(input);
-      redirect(`/admin/ai?researchRunId=${run.id}&success=Đã research nguồn cho sách.`);
+      redirectAdminAi({ researchRunId: run.id, success: "Đã research nguồn cho sách." });
     }
 
     const run = await ensureResearchRun(input);
@@ -182,16 +184,20 @@ export async function runAiAutopilotAction(formData: FormData) {
 
     if (input.intent === "book") {
       revalidateAdminAi();
-      redirect(
-        `/admin/ai?researchRunId=${run.id}&success=${encodeURIComponent(
-          "Đã tạo/cập nhật dữ liệu sách từ research.",
-        )}`,
-      );
+      redirectAdminAi({
+        researchRunId: run.id,
+        success: "Đã tạo/cập nhật dữ liệu sách từ research.",
+      });
     }
 
     const reviewInsight = await maybeCreateReviewInsight(input);
     const painBrief = buildPainBrief(input, extraction, bookData, reviewInsight);
-    const articleOutput = await generateArticlePayload(input, extraction, bookData, reviewInsight);
+    const { article: articleOutput, contentMemory } = await generateArticlePayload(
+      input,
+      extraction,
+      bookData,
+      reviewInsight,
+    );
     const articleAuthor = articleAuthorData(
       resolveEditorialPersona({
         tone: input.tone,
@@ -219,10 +225,7 @@ export async function runAiAutopilotAction(formData: FormData) {
     });
     const status = statusForIntent(input.intent, quality.canPublish);
     const slug = await uniqueArticleSlug(articleOutput.slug || articleOutput.title);
-    const scheduledAt =
-      status === ArticleStatus.SCHEDULED
-        ? parseVietnamDatetimeLocal(input.scheduledAt) || defaultVietnamScheduledDate()
-        : null;
+    const scheduledAt = null;
 
     const article = await prisma.article.create({
       data: {
@@ -238,7 +241,7 @@ export async function runAiAutopilotAction(formData: FormData) {
         focusKeyword: articleOutput.focusKeyword || input.focusKeyword || input.bookTitle,
         ...articleAuthor,
         readingTime: readingTimeFromMarkdown(articleOutput.contentMarkdown),
-        publishedAt: status === ArticleStatus.PUBLISHED ? new Date() : null,
+        publishedAt: null,
         scheduledAt,
         categories: taxonomy.categories,
         painPoints: taxonomy.painPoints,
@@ -280,6 +283,7 @@ export async function runAiAutopilotAction(formData: FormData) {
           extraction,
           bookData,
           painBrief,
+          contentMemory,
           qualityWarnings: quality.warnings,
         } as Prisma.InputJsonValue,
         outputMarkdown: articleOutput.contentMarkdown,
@@ -288,6 +292,8 @@ export async function runAiAutopilotAction(formData: FormData) {
         bookId: book.id,
       },
     });
+
+    await createArticleSourcesFromResearch(article.id, run.id, reviewInsight?.id);
 
     await prisma.researchRun.update({
       where: { id: run.id },
@@ -312,32 +318,26 @@ export async function runAiAutopilotAction(formData: FormData) {
     });
 
     revalidateAdminAi();
-    const statusText =
-      status === ArticleStatus.PUBLISHED
-        ? "Đã publish bài viết."
-        : status === ArticleStatus.SCHEDULED
-          ? "Đã tạo và lên lịch bài viết."
-          : quality.canPublish
-            ? "Đã tạo article draft."
-            : "Nguồn/chất lượng chưa đủ mạnh nên bài được đưa vào REVIEW.";
-    redirect(
-      `/admin/ai?researchRunId=${run.id}&success=${encodeURIComponent(
-        `${statusText} Bấm “Review bài” để kiểm tra thủ công.`,
-      )}`,
-    );
+    const statusText = quality.canPublish
+      ? "Đã tạo article draft."
+      : "Nguồn/chất lượng chưa đủ mạnh nên bài được đưa vào REVIEW.";
+    redirectAdminAi({
+      researchRunId: run.id,
+      success: `${statusText} Bấm “Review bài” để kiểm tra thủ công.`,
+    });
   } catch (error) {
+    unstable_rethrow(error);
     if (error instanceof DeepSeekConfigError || error instanceof ResearchConfigError) {
-      redirect(`/admin/ai?error=${encodeURIComponent(error.message)}`);
+      redirectAdminAi({ error: error.message });
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      redirect("/admin/ai?error=Slug hoặc tracking slug đã tồn tại, hãy thử lại.");
+      redirectAdminAi({ error: "Slug hoặc tracking slug đã tồn tại, hãy thử lại." });
     }
     console.error(error);
-    redirect(
-      `/admin/ai?error=${encodeURIComponent(
-        "Không chạy được AI Autopilot lúc này. Kiểm tra API key, nguồn dữ liệu hoặc thử lại.",
-      )}`,
-    );
+    const detail = formatAdminActionError(error);
+    redirectAdminAi({
+      error: `Không chạy được AI Autopilot lúc này. Kiểm tra API key, nguồn dữ liệu hoặc thử lại.${detail}`,
+    });
   }
 }
 
@@ -345,7 +345,7 @@ export async function improveAutopilotArticleAction(formData: FormData) {
   await requireAdmin();
 
   const researchRunId = textValue(formData, "researchRunId");
-  if (!researchRunId) redirect("/admin/ai?error=Thiếu research run.");
+  if (!researchRunId) redirectAdminAi({ error: "Thiếu research run." });
 
   const run = await prisma.researchRun.findUnique({
     where: { id: researchRunId },
@@ -371,7 +371,10 @@ export async function improveAutopilotArticleAction(formData: FormData) {
   });
 
   if (!run?.createdArticle) {
-    redirect(`/admin/ai?researchRunId=${researchRunId}&error=Chưa có bài viết để AI chỉnh sửa.`);
+    redirectAdminAi({
+      researchRunId,
+      error: "Chưa có bài viết để AI chỉnh sửa.",
+    });
   }
 
   const article = run.createdArticle;
@@ -470,21 +473,21 @@ export async function improveAutopilotArticleAction(formData: FormData) {
 
     revalidateAdminAi();
     revalidatePath(`/admin/articles/${article.id}/edit`);
-    redirect(
-      `/admin/ai?researchRunId=${run.id}&success=${encodeURIComponent(
-        "AI đã tự chỉnh sửa bài. Bấm “Review bài” để kiểm tra thủ công trước khi publish.",
-      )}`,
-    );
+    redirectAdminAi({
+      researchRunId: run.id,
+      success: "AI đã tự chỉnh sửa bài. Bấm “Review bài” để kiểm tra thủ công trước khi publish.",
+    });
   } catch (error) {
+    unstable_rethrow(error);
     if (error instanceof DeepSeekConfigError) {
-      redirect(`/admin/ai?researchRunId=${run.id}&error=${encodeURIComponent(error.message)}`);
+      redirectAdminAi({ researchRunId: run.id, error: error.message });
     }
     console.error(error);
-    redirect(
-      `/admin/ai?researchRunId=${run.id}&error=${encodeURIComponent(
-        "Không tự chỉnh sửa được bài lúc này. Kiểm tra DeepSeek API hoặc thử lại.",
-      )}`,
-    );
+    const detail = formatAdminActionError(error);
+    redirectAdminAi({
+      researchRunId: run.id,
+      error: `Không tự chỉnh sửa được bài lúc này. Kiểm tra DeepSeek API hoặc thử lại.${detail}`,
+    });
   }
 }
 
@@ -650,6 +653,7 @@ async function generateArticlePayload(
       ...bookData.cons,
     ],
   });
+  const contentMemory = await buildContentMemory(input, bookData);
 
   const raw = await generateAutopilotArticle({
     bookTitle: input.bookTitle,
@@ -668,13 +672,190 @@ async function generateArticlePayload(
     painPointName: painPoint?.name,
     audienceName: audience?.name,
     tone: resolvedTone,
+    contentMemory,
   });
 
   const article = parseArticleOutput(raw, input.bookTitle);
   if (!article.faqs.length) {
     article.faqs = fallbackFaqs(input.bookTitle, input.focusKeyword || input.bookTitle);
   }
-  return article;
+  return { article, contentMemory };
+}
+
+async function buildContentMemory(
+  input: AutopilotForm,
+  bookData: BookData,
+): Promise<ContentMemoryExample[]> {
+  const categoryNames = uniqueStrings(bookData.categoryNames);
+  const painPointNames = uniqueStrings(bookData.painPointNames);
+  const audienceNames = uniqueStrings(bookData.audienceNames);
+  const matchers: Prisma.ArticleWhereInput[] = [];
+
+  if (input.categoryId || categoryNames.length) {
+    const categoryOr: Prisma.CategoryWhereInput[] = [
+      ...(input.categoryId ? [{ id: input.categoryId }] : []),
+      ...categoryNames.map((name) => ({ name: { equals: name, mode: "insensitive" as const } })),
+    ];
+    matchers.push({
+      categories: {
+        some: { OR: categoryOr },
+      },
+    });
+  }
+
+  if (input.painPointId || painPointNames.length) {
+    const painPointOr: Prisma.PainPointWhereInput[] = [
+      ...(input.painPointId ? [{ id: input.painPointId }] : []),
+      ...painPointNames.map((name) => ({ name: { equals: name, mode: "insensitive" as const } })),
+    ];
+    matchers.push({
+      painPoints: {
+        some: { OR: painPointOr },
+      },
+    });
+  }
+
+  if (input.audienceId || audienceNames.length) {
+    const audienceOr: Prisma.AudienceWhereInput[] = [
+      ...(input.audienceId ? [{ id: input.audienceId }] : []),
+      ...audienceNames.map((name) => ({ name: { equals: name, mode: "insensitive" as const } })),
+    ];
+    matchers.push({
+      audiences: {
+        some: { OR: audienceOr },
+      },
+    });
+  }
+
+  const baseWhere: Prisma.ArticleWhereInput = {
+    status: ArticleStatus.PUBLISHED,
+    ...(matchers.length ? { OR: matchers } : {}),
+  };
+
+  const related = await prisma.article.findMany({
+    where: baseWhere,
+    take: 10,
+    orderBy: [{ verdictScore: "desc" }, { updatedAt: "desc" }],
+    include: {
+      _count: {
+        select: {
+          clickEvents: true,
+          pageViews: true,
+          sources: true,
+        },
+      },
+    },
+  });
+
+  const fallback =
+    related.length >= 3
+      ? []
+      : await prisma.article.findMany({
+          where: { status: ArticleStatus.PUBLISHED },
+          take: 8,
+          orderBy: [{ verdictScore: "desc" }, { updatedAt: "desc" }],
+          include: {
+            _count: {
+              select: {
+                clickEvents: true,
+                pageViews: true,
+                sources: true,
+              },
+            },
+          },
+        });
+
+  const deduped = [...related, ...fallback].filter(
+    (article, index, all) => all.findIndex((item) => item.id === article.id) === index,
+  );
+
+  return deduped
+    .sort((a, b) => contentMemoryScore(b) - contentMemoryScore(a))
+    .slice(0, 5)
+    .map(toContentMemoryExample);
+}
+
+function contentMemoryScore(article: {
+  verdictScore: number | null;
+  updatedAt: Date;
+  _count: { clickEvents: number; pageViews: number; sources: number };
+}) {
+  const freshness = Math.max(
+    0,
+    12 - Math.floor((Date.now() - article.updatedAt.getTime()) / (1000 * 60 * 60 * 24 * 30)),
+  );
+  return (
+    (article.verdictScore || 0) * 20 +
+    article._count.clickEvents * 4 +
+    article._count.pageViews * 0.2 +
+    article._count.sources * 3 +
+    freshness
+  );
+}
+
+function toContentMemoryExample(article: {
+  title: string;
+  type: ArticleType;
+  voiceTone: string | null;
+  authorName: string | null;
+  excerpt: string;
+  content: string;
+  verdictScore: number | null;
+  _count: { clickEvents: number; pageViews: number; sources: number };
+}): ContentMemoryExample {
+  const opening = extractOpening(article.content);
+  const headings = extractHeadings(article.content);
+  const whyItWorks = [
+    article.verdictScore && article.verdictScore >= 4 ? "Có verdict biên tập rõ, dễ scan." : "",
+    article._count.sources > 0 ? "Có nguồn tham khảo, tăng cảm giác đáng tin." : "",
+    article._count.clickEvents > 0 ? "Đã có tín hiệu click affiliate." : "",
+    article._count.pageViews > 0 ? "Đã có tín hiệu người đọc xem bài." : "",
+    /\bAi không nên đọc\b/i.test(article.content)
+      ? "Có phần ai không nên đọc, giúp bài cân bằng hơn quảng cáo."
+      : "",
+    headings.length >= 5 ? "Heading chia nhịp đọc tốt cho bài dài." : "",
+  ].filter(Boolean);
+
+  return {
+    title: article.title,
+    articleType: article.type,
+    voiceTone: article.voiceTone,
+    authorName: article.authorName,
+    excerpt: truncatePlain(article.excerpt, 360),
+    opening: truncatePlain(opening, 900),
+    headings: headings.slice(0, 8),
+    whyItWorks: whyItWorks.length ? whyItWorks : ["Có thể dùng làm mốc tham khảo về cấu trúc bài."],
+    verdictScore: article.verdictScore,
+    clickCount: article._count.clickEvents,
+    viewCount: article._count.pageViews,
+  };
+}
+
+function extractOpening(markdown: string) {
+  const beforeFirstHeading = markdown.split(/\n#{2,3}\s+/)[0] || markdown;
+  return stripMarkdown(beforeFirstHeading);
+}
+
+function extractHeadings(markdown: string) {
+  return [...markdown.matchAll(/^#{2,3}\s+(.+)$/gm)]
+    .map((match) => stripMarkdown(match[1] || ""))
+    .filter(Boolean);
+}
+
+function stripMarkdown(value: string) {
+  return value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)]\([^)]*\)/g, "$1")
+    .replace(/[#>*_`~-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function truncatePlain(value: string, maxLength: number) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength).trim()}...`;
 }
 
 async function upsertBookFromAutopilot(input: AutopilotForm, bookData: BookData) {
@@ -768,6 +949,51 @@ async function maybeCreateReviewInsight(input: AutopilotForm) {
   });
 }
 
+async function createArticleSourcesFromResearch(
+  articleId: string,
+  researchRunId: string,
+  reviewInsightId?: string,
+) {
+  const sources = await prisma.researchSource.findMany({
+    where: {
+      researchRunId,
+      status: "USED",
+      url: { not: null },
+    },
+    orderBy: [{ confidence: "desc" }, { createdAt: "asc" }],
+    take: 12,
+  });
+
+  const rows: Prisma.ArticleSourceCreateManyInput[] = sources.map((source, index) => ({
+    articleId,
+    title: source.title || source.domain || source.url || "Nguồn tham khảo",
+    url: source.url,
+    domain: source.domain,
+    kind:
+      source.sourceType === "PRODUCT_PAGE"
+        ? ArticleSourceKind.PUBLISHER
+        : ArticleSourceKind.REFERENCE,
+    note: source.summary ? source.summary.slice(0, 240) : null,
+    order: index + 1,
+  }));
+
+  if (reviewInsightId) {
+    rows.push({
+      articleId,
+      title: "Review người mua được admin paste thủ công",
+      url: null,
+      domain: "Shopee",
+      kind: ArticleSourceKind.BUYER_REVIEWS,
+      note: "Chỉ dùng để rút insight, không copy hoặc trích nguyên văn.",
+      order: rows.length + 1,
+    });
+  }
+
+  if (rows.length) {
+    await prisma.articleSource.createMany({ data: rows });
+  }
+}
+
 function parseExtraction(raw: string) {
   const parsed = extractionSchema.safeParse(parseJsonOutput(raw));
   if (!parsed.success) {
@@ -839,8 +1065,6 @@ function articleQualityGate({
 }
 
 function statusForIntent(intent: string, canPublish: boolean) {
-  if (intent === "schedule" && canPublish) return ArticleStatus.SCHEDULED;
-  if (intent === "publish" && canPublish) return ArticleStatus.PUBLISHED;
   if (intent === "draft") return ArticleStatus.DRAFT;
   return canPublish ? ArticleStatus.DRAFT : ArticleStatus.REVIEW;
 }
@@ -1165,42 +1389,6 @@ async function uniqueTrackingSlug(input: string) {
   return candidate;
 }
 
-function parseVietnamDatetimeLocal(value?: string) {
-  if (!value) return null;
-  const match = value.match(
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/,
-  );
-  if (!match) return null;
-
-  const [, year, month, day, hour, minute, second = "0"] = match;
-  const date = new Date(
-    Date.UTC(
-      Number(year),
-      Number(month) - 1,
-      Number(day),
-      Number(hour) - 7,
-      Number(minute),
-      Number(second),
-    ),
-  );
-
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function defaultVietnamScheduledDate() {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Ho_Chi_Minh",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(new Date());
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-
-  return new Date(
-    Date.UTC(Number(value.year), Number(value.month) - 1, Number(value.day) + 1, 1, 0, 0),
-  );
-}
-
 async function taxonomyConnectData(input: AutopilotForm, bookData: BookData) {
   const [categories, painPoints, audiences] = await Promise.all([
     prisma.category.findMany({ select: { id: true, name: true, slug: true } }),
@@ -1321,11 +1509,42 @@ function jsonStringArray(value: unknown) {
   return value.map((item) => (typeof item === "string" ? item.trim() : "")).filter(Boolean);
 }
 
-function firstNonEmpty(items: string[]) {
-  return items.map((item) => item.trim()).find(Boolean) || "";
+function firstNonEmpty(items: Array<string | null | undefined>) {
+  return items.map((item) => item?.trim() || "").find(Boolean) || "";
+}
+
+function formatAdminActionError(error: unknown) {
+  if (!(error instanceof Error)) return "";
+  const stackLine =
+    process.env.NODE_ENV !== "production"
+      ? error.stack?.split("\n").slice(1, 3).join(" ")
+      : "";
+  return ` Chi tiết: ${error.message}${stackLine ? ` (${stackLine.trim()})` : ""}`;
+}
+
+function redirectAdminAi(params: {
+  researchRunId?: string | null;
+  success?: string | null;
+  error?: string | null;
+}): never {
+  const search = new URLSearchParams();
+  if (params.researchRunId) search.set("researchRunId", params.researchRunId);
+  if (params.success) search.set("success", params.success);
+  if (params.error) search.set("error", params.error);
+  const query = search.toString();
+  redirect(query ? `/admin/ai?${query}` : "/admin/ai");
 }
 
 function revalidateAdminAi() {
+  revalidatePath("/");
+  revalidatePath("/sitemap.xml");
+  revalidatePath("/bai-viet");
+  revalidatePath("/bai-viet/[slug]", "page");
+  revalidatePath("/sach");
+  revalidatePath("/sach/[slug]", "page");
+  revalidatePath("/noi-dau/[slug]", "page");
+  revalidatePath("/chu-de/[slug]", "page");
+  revalidatePath("/doi-tuong/[slug]", "page");
   revalidatePath("/admin");
   revalidatePath("/admin/ai");
   revalidatePath("/admin/books");

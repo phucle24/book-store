@@ -14,9 +14,6 @@
     "prisma:seed": "prisma db seed",
     "release:check": "tsx scripts/release-check.ts"
   },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
-  },
   "dependencies": {
     "@prisma/client": "6.19.3",
     "next": "16.2.9",

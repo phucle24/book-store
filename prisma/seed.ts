@@ -997,6 +997,19 @@ async function main() {
         slugify("5 cuốn sách nên đọc khi bạn đang mất phương hướng"),
       ],
     },
+    {
+      name: "Giao tiếp công sở: nói đúng mà vẫn giữ được sự chân thành",
+      slug: "giao-tiep-cong-so-chan-thanh",
+      description:
+        "Một cụm đọc cho người mới đi làm hoặc dân văn phòng đang ngại giao tiếp, cần xây quan hệ công việc mà không biến mình thành người lấy lòng tất cả.",
+      painPointSlug: "giao-tiep-kem",
+      categorySlug: "giao-tiep",
+      pillarSlug: slugify("Đắc Nhân Tâm còn đáng đọc cho người mới đi làm?"),
+      articleSlugs: [
+        slugify("Đắc Nhân Tâm còn đáng đọc cho người mới đi làm?"),
+        slugify("Dám Bị Ghét và nỗi mệt vì luôn cần được công nhận"),
+      ],
+    },
   ];
 
   for (const clusterSeed of clusterSeeds) {

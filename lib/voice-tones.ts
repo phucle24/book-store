@@ -42,6 +42,12 @@ export const voiceToneProfiles = [
 
 export type VoiceToneId = (typeof voiceToneProfiles)[number]["id"];
 
+export function voiceToneLabel(tone?: string | null) {
+  if (!tone) return null;
+
+  return voiceToneProfiles.find((profile) => profile.id === tone)?.name || tone;
+}
+
 export function resolveVoiceTone({
   tone,
   categoryNames = [],

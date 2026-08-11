@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { hashIp } from "@/lib/hash";
 import { siteUrl } from "@/lib/seo";
@@ -22,22 +22,32 @@ export async function GET(
   });
 
   if (!affiliateLink?.isActive) {
-    return NextResponse.redirect(siteUrl("/"), 302);
+    const response = NextResponse.redirect(siteUrl("/"), 302);
+    response.headers.set("X-Robots-Tag", "noindex");
+    return response;
   }
 
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const realIp = request.headers.get("x-real-ip");
 
-  await prisma.clickEvent.create({
-    data: {
-      affiliateLinkId: affiliateLink.id,
-      articleId: affiliateLink.articleId,
-      bookId: affiliateLink.bookId,
-      userAgent: request.headers.get("user-agent"),
-      referer: request.headers.get("referer"),
-      ipHash: hashIp(forwardedFor || realIp),
-    },
+  const userAgent = request.headers.get("user-agent");
+  const referer = request.headers.get("referer");
+  const ipHash = hashIp(forwardedFor || realIp);
+
+  after(async () => {
+    await prisma.clickEvent.create({
+      data: {
+        affiliateLinkId: affiliateLink.id,
+        articleId: affiliateLink.articleId,
+        bookId: affiliateLink.bookId,
+        userAgent,
+        referer,
+        ipHash,
+      },
+    });
   });
 
-  return NextResponse.redirect(affiliateLink.destinationUrl, 302);
+  const response = NextResponse.redirect(affiliateLink.destinationUrl, 302);
+  response.headers.set("X-Robots-Tag", "noindex");
+  return response;
 }
