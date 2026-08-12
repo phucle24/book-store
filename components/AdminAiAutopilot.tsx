@@ -164,10 +164,16 @@ export function AdminAiAutopilot({
             <WorkflowButton intent="research" label="Research sources" variant="secondary" />
             <WorkflowButton intent="book" label="Generate book data" variant="secondary" />
             <WorkflowButton intent="draft" label="Generate article draft" />
+            <WorkflowButton
+              intent="auto_publish"
+              label="Tạo và tự đăng nếu đạt chuẩn"
+              variant="secondary"
+            />
           </div>
           <p className="mt-3 text-xs leading-5 text-stone-500">
-            Autopilot luôn tạo DRAFT hoặc REVIEW. Mở bài vừa tạo để kiểm tra nguồn, verdict,
-            FAQ và nội dung trước khi tự chọn lịch đăng hoặc publish trong editor.
+            Tự đăng chỉ chạy khi bài có nguồn đủ mạnh, confidence từ 0.78, SEO, verdict, FAQ,
+            pain point, audience và toàn bộ section review bắt buộc. Nếu thiếu một mục, bài ở
+            REVIEW để bạn xử lý.
           </p>
         </form>
 

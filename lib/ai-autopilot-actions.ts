@@ -28,6 +28,7 @@ import { prisma } from "@/lib/prisma";
 import { ResearchConfigError, researchBookSources } from "@/lib/research";
 import { slugify } from "@/lib/slugify";
 import { resolveVoiceTone } from "@/lib/voice-tones";
+import { getArticleQualitySummary } from "@/lib/content-quality";
 
 const optionalUrl = z
   .string()
@@ -35,7 +36,7 @@ const optionalUrl = z
   .refine((value) => !value || isValidUrl(value), "URL không hợp lệ.");
 
 const autopilotSchema = z.object({
-  intent: z.enum(["research", "book", "draft", "schedule", "publish"]),
+  intent: z.enum(["research", "book", "draft", "schedule", "publish", "auto_publish"]),
   researchRunId: z.string().trim().optional(),
   bookTitle: z.string().trim().min(1, "Thiếu tên sách."),
   author: z.string().trim().optional(),
@@ -96,6 +97,8 @@ const articleOutputSchema = z.object({
   seoTitle: z.string().trim().min(1),
   seoDescription: z.string().trim().min(1),
   focusKeyword: z.string().trim().optional().default(""),
+  verdictScore: z.coerce.number().min(1).max(5).optional(),
+  verdictSummary: z.string().trim().optional().default(""),
   contentMarkdown: z.string().trim().min(1),
   faqs: z
     .array(
@@ -154,7 +157,7 @@ export async function runAiAutopilotAction(formData: FormData) {
   }
 
   const input = parsed.data;
-  if (["draft", "schedule", "publish"].includes(input.intent) && !input.affiliateUrl) {
+  if (["draft", "schedule", "publish", "auto_publish"].includes(input.intent) && !input.affiliateUrl) {
     redirectAdminAi({ error: "Thiếu affiliate URL để tạo CTA cuối bài." });
   }
 
@@ -223,7 +226,7 @@ export async function runAiAutopilotAction(formData: FormData) {
       hasManualData: Boolean(input.manualBookData || input.sourceNotes || input.rawReviews),
       hasAffiliateUrl: Boolean(input.affiliateUrl),
     });
-    const status = statusForIntent(input.intent, quality.canPublish);
+    const status = input.intent === "draft" ? ArticleStatus.DRAFT : ArticleStatus.REVIEW;
     const slug = await uniqueArticleSlug(articleOutput.slug || articleOutput.title);
     const scheduledAt = null;
 
@@ -240,6 +243,8 @@ export async function runAiAutopilotAction(formData: FormData) {
         seoDescription: articleOutput.seoDescription,
         focusKeyword: articleOutput.focusKeyword || input.focusKeyword || input.bookTitle,
         ...articleAuthor,
+        verdictScore: articleOutput.verdictScore ?? null,
+        verdictSummary: nullable(articleOutput.verdictSummary),
         readingTime: readingTimeFromMarkdown(articleOutput.contentMarkdown),
         publishedAt: null,
         scheduledAt,
@@ -295,19 +300,48 @@ export async function runAiAutopilotAction(formData: FormData) {
 
     await createArticleSourcesFromResearch(article.id, run.id, reviewInsight?.id);
 
+    const publication = await evaluateAutoPublishReadiness({
+      articleId: article.id,
+      intent: input.intent,
+      researchConfidence: combinedConfidence(
+        extraction.confidence,
+        bookData.confidence,
+        articleOutput.confidence,
+      ),
+      articleWarnings: articleOutput.warnings,
+      usedSourceCount: await usedSourceCount(run.id),
+      hasManualReview: Boolean(input.rawReviews?.trim()),
+    });
+
+    if (publication.approved) {
+      await prisma.article.update({
+        where: { id: article.id },
+        data: {
+          status: ArticleStatus.PUBLISHED,
+          publishedAt: new Date(),
+        },
+      });
+      revalidatePublishedArticle(article.slug);
+    }
+
     await prisma.researchRun.update({
       where: { id: run.id },
       data: {
         status: "ARTICLE_CREATED",
         createdBookId: book.id,
         createdArticleId: article.id,
-        sourceSummary: mergeSourceSummary(extraction, bookData, articleOutput, quality, painBrief),
+        sourceSummary: mergeSourceSummary(extraction, bookData, articleOutput, {
+          ...quality,
+          warnings: uniqueStrings([...quality.warnings, ...publication.reasons]),
+          canPublish: publication.approved,
+        }, painBrief),
         warnings: uniqueStrings([
           ...run.warnings,
           ...extraction.warnings,
           ...bookData.warnings,
           ...articleOutput.warnings,
           ...quality.warnings,
+          ...publication.reasons,
         ]),
         confidence: combinedConfidence(
           extraction.confidence,
@@ -318,12 +352,14 @@ export async function runAiAutopilotAction(formData: FormData) {
     });
 
     revalidateAdminAi();
-    const statusText = quality.canPublish
-      ? "Đã tạo article draft."
-      : "Nguồn/chất lượng chưa đủ mạnh nên bài được đưa vào REVIEW.";
+    const statusText = publication.approved
+      ? "Bài đã đạt quality gate và được public tự động."
+      : input.intent === "auto_publish"
+        ? "Bài chưa đạt quality gate nên được đưa vào REVIEW, chưa public."
+        : "Đã tạo bài để bạn review trước khi publish.";
     redirectAdminAi({
       researchRunId: run.id,
-      success: `${statusText} Bấm “Review bài” để kiểm tra thủ công.`,
+      success: publication.approved ? statusText : `${statusText} Bấm “Review bài” để kiểm tra thủ công.`,
     });
   } catch (error) {
     unstable_rethrow(error);
@@ -729,6 +765,9 @@ async function buildContentMemory(
 
   const baseWhere: Prisma.ArticleWhereInput = {
     status: ArticleStatus.PUBLISHED,
+    publishedAt: {
+      lte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000),
+    },
     ...(matchers.length ? { OR: matchers } : {}),
   };
 
@@ -768,18 +807,68 @@ async function buildContentMemory(
   const deduped = [...related, ...fallback].filter(
     (article, index, all) => all.findIndex((item) => item.id === article.id) === index,
   );
+  const candidateIds = deduped.map((article) => article.id);
+  const engagementRows = candidateIds.length
+    ? await prisma.intentEvent.groupBy({
+        by: ["articleId", "type"],
+        where: {
+          articleId: { in: candidateIds },
+          createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
+          type: {
+            in: [
+              "article_scroll_90",
+              "saved_article",
+              "read_next_featured_clicked",
+              "read_next_secondary_clicked",
+              "journey_item_clicked",
+            ],
+          },
+        },
+        _count: { _all: true },
+      })
+    : [];
+  const engagementByArticle = new Map<string, EngagementMetrics>();
+
+  for (const row of engagementRows) {
+    if (!row.articleId) continue;
+    const current = engagementByArticle.get(row.articleId) || emptyEngagementMetrics();
+    if (row.type === "article_scroll_90") current.completedReads += row._count._all;
+    if (row.type === "saved_article") current.saves += row._count._all;
+    if (
+      row.type === "read_next_featured_clicked" ||
+      row.type === "read_next_secondary_clicked" ||
+      row.type === "journey_item_clicked"
+    ) {
+      current.readNextClicks += row._count._all;
+    }
+    engagementByArticle.set(row.articleId, current);
+  }
 
   return deduped
-    .sort((a, b) => contentMemoryScore(b) - contentMemoryScore(a))
+    .sort(
+      (a, b) =>
+        contentMemoryScore(b, engagementByArticle.get(b.id)) -
+        contentMemoryScore(a, engagementByArticle.get(a.id)),
+    )
     .slice(0, 5)
-    .map(toContentMemoryExample);
+    .map((article) => toContentMemoryExample(article, engagementByArticle.get(article.id)));
+}
+
+type EngagementMetrics = {
+  completedReads: number;
+  saves: number;
+  readNextClicks: number;
+};
+
+function emptyEngagementMetrics(): EngagementMetrics {
+  return { completedReads: 0, saves: 0, readNextClicks: 0 };
 }
 
 function contentMemoryScore(article: {
   verdictScore: number | null;
   updatedAt: Date;
   _count: { clickEvents: number; pageViews: number; sources: number };
-}) {
+}, engagement = emptyEngagementMetrics()) {
   const freshness = Math.max(
     0,
     12 - Math.floor((Date.now() - article.updatedAt.getTime()) / (1000 * 60 * 60 * 24 * 30)),
@@ -789,6 +878,9 @@ function contentMemoryScore(article: {
     article._count.clickEvents * 4 +
     article._count.pageViews * 0.2 +
     article._count.sources * 3 +
+    engagement.completedReads * 3 +
+    engagement.saves * 4 +
+    engagement.readNextClicks * 2 +
     freshness
   );
 }
@@ -802,7 +894,7 @@ function toContentMemoryExample(article: {
   content: string;
   verdictScore: number | null;
   _count: { clickEvents: number; pageViews: number; sources: number };
-}): ContentMemoryExample {
+}, engagement = emptyEngagementMetrics()): ContentMemoryExample {
   const opening = extractOpening(article.content);
   const headings = extractHeadings(article.content);
   const whyItWorks = [
@@ -810,6 +902,11 @@ function toContentMemoryExample(article: {
     article._count.sources > 0 ? "Có nguồn tham khảo, tăng cảm giác đáng tin." : "",
     article._count.clickEvents > 0 ? "Đã có tín hiệu click affiliate." : "",
     article._count.pageViews > 0 ? "Đã có tín hiệu người đọc xem bài." : "",
+    engagement.completedReads > 0
+      ? "Có tín hiệu người đọc cuộn đến gần cuối bài."
+      : "",
+    engagement.saves > 0 ? "Có tín hiệu người đọc lưu bài để quay lại." : "",
+    engagement.readNextClicks > 0 ? "Có tín hiệu người đọc đi tiếp sang bài liên quan." : "",
     /\bAi không nên đọc\b/i.test(article.content)
       ? "Có phần ai không nên đọc, giúp bài cân bằng hơn quảng cáo."
       : "",
@@ -1064,9 +1161,90 @@ function articleQualityGate({
   };
 }
 
-function statusForIntent(intent: string, canPublish: boolean) {
-  if (intent === "draft") return ArticleStatus.DRAFT;
-  return canPublish ? ArticleStatus.DRAFT : ArticleStatus.REVIEW;
+async function evaluateAutoPublishReadiness({
+  articleId,
+  intent,
+  researchConfidence,
+  articleWarnings,
+  usedSourceCount,
+  hasManualReview,
+}: {
+  articleId: string;
+  intent: string;
+  researchConfidence: number;
+  articleWarnings: string[];
+  usedSourceCount: number;
+  hasManualReview: boolean;
+}) {
+  if (intent !== "auto_publish") {
+    return { approved: false, reasons: [] as string[] };
+  }
+
+  const article = await prisma.article.findUniqueOrThrow({
+    where: { id: articleId },
+    include: {
+      faqs: { select: { question: true } },
+      sources: { select: { title: true } },
+      books: { select: { role: true } },
+      painPoints: { select: { id: true, name: true, slug: true } },
+      audiences: { select: { id: true, name: true, slug: true } },
+    },
+  });
+  const summary = getArticleQualitySummary({
+    ...article,
+    faqs: article.faqs.map((faq) => ({ name: faq.question })),
+    sources: article.sources.map((source) => ({ name: source.title })),
+  });
+  const strictChecks = new Set([
+    "Có SEO title",
+    "Có SEO description",
+    "Có focus keyword",
+    "Có verdict biên tập",
+    "Có ít nhất 1 pain point",
+    "Có ít nhất 1 audience",
+    "Có sách liên quan",
+    "Content tối thiểu 900 từ",
+    "Có FAQ cho bài review/top-list",
+    "Có nguồn hoặc ghi chú biên tập",
+    "Review/story có sách chính",
+    "Có section sách nói về gì",
+    "Có review chi tiết/góc nhìn sau khi đọc",
+    "Có phần ai nên đọc",
+    "Có phần ai không nên đọc",
+    "Có phần điểm hạn chế",
+    "Gọi đúng nỗi đau trong 200 chữ đầu",
+    "Có cấu trúc heading đủ để scan",
+    "Có decision section trước CTA",
+    "Không nhắc review Shopee khi chưa có ReviewInsight",
+    "CTA không nằm trong markdown",
+    "Không dùng cụm sáo rỗng kiểu AI",
+    "Nhịp câu có biến thiên tự nhiên",
+    "Có chi tiết cụ thể kiểm chứng được",
+  ]);
+  const failedChecks = summary.checks
+    .filter((check) => !check.ok && strictChecks.has(check.label))
+    .map((check) => check.label);
+  const reasons = [...failedChecks];
+
+  if (researchConfidence < 0.78) {
+    reasons.push("Confidence research/AI dưới ngưỡng tự public 0.78");
+  }
+  if (usedSourceCount < 2 && !(hasManualReview && article.sources.length >= 1)) {
+    reasons.push("Cần ít nhất 2 nguồn research, hoặc 1 nguồn kèm review admin paste thủ công");
+  }
+  if (articleWarnings.length) {
+    reasons.push("AI còn cảnh báo cần biên tập");
+  }
+
+  return { approved: reasons.length === 0, reasons: uniqueStrings(reasons) };
+}
+
+function revalidatePublishedArticle(slug: string) {
+  revalidatePath("/");
+  revalidatePath("/bai-viet");
+  revalidatePath(`/bai-viet/${slug}`);
+  revalidatePath("/sach");
+  revalidatePath("/sitemap.xml");
 }
 
 function mergeSourceSummary(

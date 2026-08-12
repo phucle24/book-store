@@ -23,16 +23,49 @@ export default async function ContentAuditPage() {
     },
   });
   const now = new Date();
+  const thirtyDaysAgo = new Date(now);
+  thirtyDaysAgo.setDate(now.getDate() - 30);
+  const engagementRows = await prisma.intentEvent.groupBy({
+    by: ["articleId", "type"],
+    where: {
+      articleId: { in: articles.map((article) => article.id) },
+      createdAt: { gte: thirtyDaysAgo },
+      type: {
+        in: ["article_scroll_50", "article_scroll_90", "cta_visible", "saved_article"],
+      },
+    },
+    _count: { _all: true },
+  });
+  const engagementByArticle = engagementRows.reduce(
+    (acc, row) => {
+      if (!row.articleId) return acc;
+      const current = acc[row.articleId] || {};
+      current[row.type] = row._count._all;
+      acc[row.articleId] = current;
+      return acc;
+    },
+    {} as Record<string, Record<string, number>>,
+  );
 
   const rows = articles.map((article) => {
     const summary = getArticleQualitySummary(article);
     const ageDays = Math.floor(
       (now.getTime() - article.updatedAt.getTime()) / (1000 * 60 * 60 * 24),
     );
+    const engagement = engagementByArticle[article.id] || {};
+    const scroll90 = engagement.article_scroll_90 || 0;
+    const ctaVisible = engagement.cta_visible || 0;
+    const saved = engagement.saved_article || 0;
     const refreshReasons = [
       ageDays >= 120 ? `Cũ ${ageDays} ngày` : null,
-      article._count.pageViews >= 5 && article._count.clickEvents === 0
-        ? "Có view nhưng chưa có click"
+      article._count.pageViews >= 15 && article._count.clickEvents === 0
+        ? "Có view nhưng chưa có click affiliate"
+        : null,
+      scroll90 >= 5 && article._count.clickEvents === 0
+        ? "Đọc gần hết nhưng chưa đủ thuyết phục để click"
+        : null,
+      ctaVisible >= 10 && article._count.clickEvents === 0
+        ? "CTA đã hiện nhiều lần nhưng chưa được click"
         : null,
     ].filter((item): item is string => Boolean(item));
 
@@ -41,6 +74,7 @@ export default async function ContentAuditPage() {
       summary,
       issues: [...summary.failedRequired, ...summary.failedWarnings],
       refreshReasons,
+      engagement: { scroll90, ctaVisible, saved },
     };
   });
   const needsSeo = rows.filter((row) =>
@@ -80,12 +114,13 @@ export default async function ContentAuditPage() {
                 <th className="px-4 py-3">Score</th>
                 <th className="px-4 py-3">Word</th>
                 <th className="px-4 py-3">View / Click</th>
+                <th className="px-4 py-3">Tín hiệu 30 ngày</th>
                 <th className="px-4 py-3">Vấn đề cần xử lý</th>
                 <th className="px-4 py-3 text-right">Hành động</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {rows.map(({ article, summary, issues, refreshReasons }) => (
+              {rows.map(({ article, summary, issues, refreshReasons, engagement }) => (
                 <tr key={article.id}>
                   <td className="px-4 py-4">
                     <Link
@@ -117,6 +152,11 @@ export default async function ContentAuditPage() {
                   <td className="px-4 py-4 text-stone-600">{summary.wordCount}</td>
                   <td className="px-4 py-4 text-stone-600">
                     {article._count.pageViews} / {article._count.clickEvents}
+                  </td>
+                  <td className="px-4 py-4 text-xs leading-5 text-stone-600">
+                    <div>Đọc gần hết: {engagement.scroll90}</div>
+                    <div>CTA thấy: {engagement.ctaVisible}</div>
+                    <div>Lưu bài: {engagement.saved}</div>
                   </td>
                   <td className="px-4 py-4">
                     {issues.length || refreshReasons.length ? (

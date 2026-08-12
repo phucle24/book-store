@@ -528,6 +528,7 @@ Yêu cầu:
 - Có phần "Ai nên đọc" và "Ai không nên đọc".
 - Có phần "Điểm hạn chế".
 - Kết thúc bằng H2 "Nên đọc cuốn này như thế nào".
+- Đưa verdictScore (1-5, có thể dùng nửa điểm) và verdictSummary (1-2 câu) theo góc nhìn biên tập; không mượn điểm đánh giá từ sàn hay nguồn khác.
 - Không đưa FAQ vào contentMarkdown; FAQ chỉ nằm trong field faqs.
 - Không viết section "review Shopee" nếu chỉ có review paste thủ công; chỉ tổng hợp thành xu hướng người mua thường thích/cân nhắc.
 - Không dùng ngôi "tôi" để kể trải nghiệm cá nhân nếu input không có verifiedRead=true. Với Autopilot mặc định là chưa verifiedRead.
@@ -576,6 +577,8 @@ Output JSON hợp lệ, không markdown fence:
   "seoTitle": "",
   "seoDescription": "",
   "focusKeyword": "",
+  "verdictScore": 0,
+  "verdictSummary": "",
   "contentMarkdown": "",
   "faqs": [
     { "question": "", "answer": "" }
