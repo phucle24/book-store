@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+set -a
+. /var/www/book-store/.env
+set +a
+
+/usr/bin/curl -fsS -X POST http://127.0.0.1:3000/api/cron/publish-scheduled \
+  -H "Authorization: Bearer ${CRON_SECRET}" \
+  >/dev/null

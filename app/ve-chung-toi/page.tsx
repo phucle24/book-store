@@ -22,10 +22,6 @@ export default function AboutPage() {
           hoặc những câu hỏi rất đời thường.
         </p>
         <p>
-          Bài viết trên website có thể được AI hỗ trợ ở khâu nháp, lên ý tưởng
-          hoặc kiểm tra SEO, nhưng cần được biên tập trước khi xuất bản.
-        </p>
-        <p>
           Một số bài dùng bút danh biên tập như Linh An, Minh Quân, An Nhiên
           hoặc Hà My để giữ giọng viết nhất quán theo từng nhóm nội dung. Đây
           là bút danh của hệ biên tập Trạm Đọc Một Chút, không phải hồ sơ cá
