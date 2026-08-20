@@ -122,6 +122,8 @@ model Book {
   pageViews          PageView[]
   intentEvents       IntentEvent[]
   researchRuns       ResearchRun[]   @relation("ResearchRunBook")
+  comments           Comment[]
+  reactions          ArticleReaction[]
 }
 
 model Category {
@@ -207,6 +209,8 @@ model Article {
   keywordIdeas      KeywordIdea[]
   researchRuns      ResearchRun[]    @relation("ResearchRunArticle")
   sources           ArticleSource[]
+  comments          Comment[]
+  reactions         ArticleReaction[]
 
   @@index([status, publishedAt])
 }
@@ -223,6 +227,41 @@ model ArticleSource {
   article   Article           @relation(fields: [articleId], references: [id], onDelete: Cascade)
 
   @@index([articleId])
+}
+
+model Comment {
+  id           String   @id @default(cuid())
+  articleId    String?
+  bookId       String?
+  name         String
+  email        String?
+  content      String
+  rating       Int?     @default(5)
+  badge        String?  // "Đã đọc xong", "Đã mua sách", "Đang cân nhắc"
+  isApproved   Boolean  @default(true)
+  helpfulCount Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  article      Article? @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  book         Book?    @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@index([articleId, isApproved, createdAt])
+  @@index([bookId, isApproved, createdAt])
+}
+
+model ArticleReaction {
+  id        String   @id @default(cuid())
+  articleId String?
+  bookId    String?
+  type      String   // "helpful" | "insightful" | "bought" | "loved"
+  ipHash    String?
+  createdAt DateTime @default(now())
+  article   Article? @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  book      Book?    @relation(fields: [bookId], references: [id], onDelete: Cascade)
+
+  @@index([articleId, type])
+  @@index([bookId, type])
+  @@index([ipHash, articleId, type])
 }
 
 model ContentCluster {

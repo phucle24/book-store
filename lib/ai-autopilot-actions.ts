@@ -29,6 +29,7 @@ import { ResearchConfigError, researchBookSources } from "@/lib/research";
 import { slugify } from "@/lib/slugify";
 import { resolveVoiceTone } from "@/lib/voice-tones";
 import { getArticleQualitySummary } from "@/lib/content-quality";
+import { notifySearchEngines } from "@/lib/indexing";
 
 const optionalUrl = z
   .string()
@@ -322,6 +323,7 @@ export async function runAiAutopilotAction(formData: FormData) {
         },
       });
       revalidatePublishedArticle(article.slug);
+      notifySearchEngines([`/bai-viet/${article.slug}`]);
     }
 
     await prisma.researchRun.update({

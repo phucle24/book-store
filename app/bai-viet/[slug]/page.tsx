@@ -5,6 +5,7 @@ import { AffiliateDecisionCard } from "@/components/AffiliateDecisionCard";
 import { ArticleSourceNote } from "@/components/ArticleSourceNote";
 import { ArticleIntentBox } from "@/components/ArticleIntentBox";
 import { ArticleByline } from "@/components/ArticleByline";
+import { ArticleReactions } from "@/components/ArticleReactions";
 import { ArticleShareActions } from "@/components/ArticleShareActions";
 import { ArticleTableOfContents } from "@/components/ArticleTableOfContents";
 import {
@@ -12,6 +13,7 @@ import {
   BookReadingPrelude,
   BookReadingQuestions,
 } from "@/components/BookContentBox";
+import { CommentSection } from "@/components/CommentSection";
 import { DisclosureBox } from "@/components/DisclosureBox";
 import { FAQBlock } from "@/components/FAQBlock";
 import { HighlightText } from "@/components/HighlightText";
@@ -22,6 +24,7 @@ import { PageViewTracker } from "@/components/PageViewTracker";
 import { ReadNext } from "@/components/ReadNext";
 import { SavedArticleButton } from "@/components/SavedArticleButton";
 import { SubscribeForm } from "@/components/SubscribeForm";
+import { getCommentsAndReactions } from "@/lib/comment-actions";
 import {
   TopListFinalCta,
   TopListQuickGuide,
@@ -91,57 +94,65 @@ export default async function ArticleDetailPage({
   const topListBooks = isTopList ? article.books.map((item) => item.book) : [];
   const trackingSlug =
     !isTopList
-      ? article.affiliateLinks[0]?.trackingSlug || mainBook?.affiliateLinks[0]?.trackingSlug
+      ? article.affiliateLinks[0]?.trackingSlug ||
+        mainBook?.affiliateLinks[0]?.trackingSlug ||
+        (mainBook?.slug ? `book-${mainBook.slug}` : `article-${article.slug}`)
       : null;
 
-  const [relatedArticles, samePainArticles, sameAudienceArticles, sameBookArticles] =
-    await Promise.all([
-      prisma.article.findMany({
-        where: {
-          id: { not: article.id },
-          status: ArticleStatus.PUBLISHED,
-          OR: [
-            { painPoints: { some: { id: { in: article.painPoints.map((item) => item.id) } } } },
-            { categories: { some: { id: { in: article.categories.map((item) => item.id) } } } },
-          ],
-        },
-        orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-        take: 4,
-        include: { categories: true, painPoints: true },
-      }),
-      prisma.article.findMany({
-        where: {
-          id: { not: article.id },
-          status: ArticleStatus.PUBLISHED,
-          painPoints: { some: { id: { in: article.painPoints.map((item) => item.id) } } },
-        },
-        orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-        take: 3,
-        select: { id: true, title: true, slug: true, excerpt: true },
-      }),
-      prisma.article.findMany({
-        where: {
-          id: { not: article.id },
-          status: ArticleStatus.PUBLISHED,
-          audiences: { some: { id: { in: article.audiences.map((item) => item.id) } } },
-        },
-        orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-        take: 3,
-        select: { id: true, title: true, slug: true, excerpt: true },
-      }),
-      mainBook
-        ? prisma.article.findMany({
-            where: {
-              id: { not: article.id },
-              status: ArticleStatus.PUBLISHED,
-              books: { some: { bookId: mainBook.id } },
-            },
-            orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
-            take: 3,
-            select: { id: true, title: true, slug: true, excerpt: true },
-          })
-        : Promise.resolve([]),
-    ]);
+  const [
+    relatedArticles,
+    samePainArticles,
+    sameAudienceArticles,
+    sameBookArticles,
+    ugcData,
+  ] = await Promise.all([
+    prisma.article.findMany({
+      where: {
+        id: { not: article.id },
+        status: ArticleStatus.PUBLISHED,
+        OR: [
+          { painPoints: { some: { id: { in: article.painPoints.map((item) => item.id) } } } },
+          { categories: { some: { id: { in: article.categories.map((item) => item.id) } } } },
+        ],
+      },
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      take: 4,
+      include: { categories: true, painPoints: true },
+    }),
+    prisma.article.findMany({
+      where: {
+        id: { not: article.id },
+        status: ArticleStatus.PUBLISHED,
+        painPoints: { some: { id: { in: article.painPoints.map((item) => item.id) } } },
+      },
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      take: 3,
+      select: { id: true, title: true, slug: true, excerpt: true },
+    }),
+    prisma.article.findMany({
+      where: {
+        id: { not: article.id },
+        status: ArticleStatus.PUBLISHED,
+        audiences: { some: { id: { in: article.audiences.map((item) => item.id) } } },
+      },
+      orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+      take: 3,
+      select: { id: true, title: true, slug: true, excerpt: true },
+    }),
+    mainBook
+      ? prisma.article.findMany({
+          where: {
+            id: { not: article.id },
+            status: ArticleStatus.PUBLISHED,
+            books: { some: { bookId: mainBook.id } },
+          },
+          orderBy: [{ publishedAt: "desc" }, { createdAt: "desc" }],
+          take: 3,
+          select: { id: true, title: true, slug: true, excerpt: true },
+        })
+      : Promise.resolve([]),
+    getCommentsAndReactions({ articleId: article.id }),
+  ]);
 
   const relatedBooks = article.books.map((item) => item.book);
   const publishedAt = article.publishedAt || article.createdAt;
@@ -160,7 +171,7 @@ export default async function ArticleDetailPage({
   const articleJsonLd = {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
-    headline: article.title,
+    headline: article.seoTitle || article.title,
     description: article.seoDescription || article.excerpt,
     datePublished: publishedAt.toISOString(),
     dateModified: article.updatedAt.toISOString(),
@@ -171,6 +182,17 @@ export default async function ArticleDetailPage({
     publisher: { "@type": "Organization", name: siteName },
     image: article.coverImage ? [article.coverImage] : undefined,
     mainEntityOfPage: siteUrl(`/bai-viet/${article.slug}`),
+    ...(ugcData.totalReviews > 0
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: ugcData.averageRating,
+            reviewCount: ugcData.totalReviews,
+            bestRating: 5,
+            worstRating: 1,
+          },
+        }
+      : {}),
   };
   const faqJsonLd = article.faqs.length
     ? faqSchema(article.faqs.map((faq) => ({ question: faq.question, answer: faq.answer })))
@@ -202,6 +224,17 @@ export default async function ArticleDetailPage({
             bestRating: 5,
             worstRating: 1,
           },
+          ...(ugcData.totalReviews > 0
+            ? {
+                aggregateRating: {
+                  "@type": "AggregateRating",
+                  ratingValue: ugcData.averageRating,
+                  reviewCount: ugcData.totalReviews,
+                  bestRating: 5,
+                  worstRating: 1,
+                },
+              }
+            : {}),
         }
       : null;
   const itemListJsonLd = isTopList
@@ -347,6 +380,11 @@ export default async function ArticleDetailPage({
         {!isTopList && mainBook ? (
           <BookReadingQuestions book={mainBook} highlightKeywords={highlightKeywords} />
         ) : null}
+
+        <ArticleReactions
+          articleId={article.id}
+          initialCounts={ugcData.reactionCounts}
+        />
       </div>
 
       <ReadNext
@@ -376,6 +414,14 @@ export default async function ArticleDetailPage({
       <div className="mx-auto max-w-3xl">
         <ArticleSourceNote sources={article.sources} reviewInsight={article.reviewInsight} />
         <FAQBlock faqs={article.faqs} />
+        
+        <CommentSection
+          articleId={article.id}
+          initialComments={ugcData.comments}
+          averageRating={ugcData.averageRating}
+          totalReviews={ugcData.totalReviews}
+        />
+
         <div className="mt-8">
           <SubscribeForm
             source={`article:${article.slug}`}

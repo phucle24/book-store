@@ -64,19 +64,6 @@ async function main() {
           verdictSummary(article.title, mainBook?.title, score),
       },
     });
-
-    if (!article.sources.length) {
-      await prisma.articleSource.create({
-        data: {
-          articleId: article.id,
-          title: "Dữ liệu sách và ghi chú biên tập nội bộ",
-          kind: ArticleSourceKind.EDITORIAL_NOTE,
-          note:
-            "Bài seed được biên tập từ dữ liệu sách trong hệ thống mẫu. Khi dùng production, hãy bổ sung nguồn tham khảo thật trong admin article edit.",
-          order: 1,
-        },
-      });
-    }
   }
 
   console.log(`Backfilled trust data for ${articles.length} published articles.`);

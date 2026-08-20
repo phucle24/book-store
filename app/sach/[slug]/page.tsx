@@ -3,9 +3,11 @@ import { notFound } from "next/navigation";
 import { ArticleStatus, BookStatus } from "@prisma/client";
 import { AffiliateButton } from "@/components/AffiliateButton";
 import { ArticleCard } from "@/components/ArticleCard";
+import { ArticleReactions } from "@/components/ArticleReactions";
 import { BookPainFitBlock } from "@/components/BookPainFitBlock";
 import { BookCard } from "@/components/BookCard";
 import { BookCover } from "@/components/BookCover";
+import { CommentSection } from "@/components/CommentSection";
 import { DisclosureBox } from "@/components/DisclosureBox";
 import { IntentEventTracker } from "@/components/IntentEventTracker";
 import { PageViewTracker } from "@/components/PageViewTracker";
@@ -13,6 +15,7 @@ import { VerdictCard } from "@/components/VerdictCard";
 import { prisma } from "@/lib/prisma";
 import { getActiveBookBySlug } from "@/lib/queries";
 import { pageMetadata, siteUrl } from "@/lib/seo";
+import { getCommentsAndReactions } from "@/lib/comment-actions";
 
 export const revalidate = 600;
 
@@ -59,18 +62,23 @@ export default async function BookDetailPage({
 
   if (!book) notFound();
 
+  const [similarBooks, ugcData] = await Promise.all([
+    prisma.book.findMany({
+      where: {
+        id: { not: book.id },
+        status: BookStatus.ACTIVE,
+        categories: { some: { id: { in: book.categories.map((item) => item.id) } } },
+      },
+      take: 4,
+      include: { painPoints: true },
+    }),
+    getCommentsAndReactions({ bookId: book.id }),
+  ]);
+
   const relatedArticles = book.articles
     .map((item) => item.article)
     .filter((article) => article.status === ArticleStatus.PUBLISHED);
-  const similarBooks = await prisma.book.findMany({
-    where: {
-      id: { not: book.id },
-      status: BookStatus.ACTIVE,
-      categories: { some: { id: { in: book.categories.map((item) => item.id) } } },
-    },
-    take: 4,
-    include: { painPoints: true },
-  });
+
   const trackingSlug = book.affiliateLinks[0]?.trackingSlug;
   const jsonLd = {
     "@context": "https://schema.org",
@@ -80,6 +88,17 @@ export default async function BookDetailPage({
     description: book.description,
     image: book.coverImage || undefined,
     url: siteUrl(`/sach/${book.slug}`),
+    ...(ugcData.totalReviews > 0
+      ? {
+          aggregateRating: {
+            "@type": "AggregateRating",
+            ratingValue: ugcData.averageRating,
+            reviewCount: ugcData.totalReviews,
+            bestRating: 5,
+            worstRating: 1,
+          },
+        }
+      : {}),
   };
 
   return (
@@ -147,6 +166,11 @@ export default async function BookDetailPage({
         <InfoList title="Không phù hợp nếu bạn..." items={book.notSuitableFor} />
       </section>
 
+      <ArticleReactions
+        bookId={book.id}
+        initialCounts={ugcData.reactionCounts}
+      />
+
       <section
         data-cta-visible-target
         className="mt-10 rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm sm:p-6"
@@ -170,6 +194,15 @@ export default async function BookDetailPage({
           <DisclosureBox />
         </div>
       </section>
+
+      <div className="mt-14">
+        <CommentSection
+          bookId={book.id}
+          initialComments={ugcData.comments}
+          averageRating={ugcData.averageRating}
+          totalReviews={ugcData.totalReviews}
+        />
+      </div>
 
       <section className="mt-14">
         <h2 className="text-2xl font-semibold text-stone-950">Bài review liên quan</h2>

@@ -7,6 +7,7 @@ const items = [
   { href: "/admin/content-planner", label: "Content planner" },
   { href: "/admin/content-audit", label: "Content audit" },
   { href: "/admin/system-status", label: "Trạng thái hệ thống" },
+  { href: "/admin/comments", label: "Bình luận độc giả" },
   { href: "/admin/review-insights", label: "Review collector" },
   { href: "/admin/subscribers", label: "Subscribers" },
   { href: "/admin/categories", label: "Chủ đề" },

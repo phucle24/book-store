@@ -25,6 +25,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { hashIp } from "@/lib/hash";
 import { slugify } from "@/lib/slugify";
 import { getArticleQualitySummary } from "@/lib/content-quality";
+import { notifySearchEngines } from "@/lib/indexing";
 
 const optionalUrlSchema = z
   .string()
@@ -198,6 +199,9 @@ export async function createBookAction(formData: FormData) {
       },
     });
     await syncBookAffiliateLink(book.id, data.title, data.slug, data.shopeeAffiliateUrl);
+    if (data.status === BookStatus.ACTIVE) {
+      notifySearchEngines([`/sach/${data.slug}`]);
+    }
   } catch (error) {
     handlePrismaError(error, path);
   }
@@ -237,6 +241,9 @@ export async function updateBookAction(formData: FormData) {
       },
     });
     await syncBookAffiliateLink(id, data.title, data.slug, data.shopeeAffiliateUrl);
+    if (data.status === BookStatus.ACTIVE) {
+      notifySearchEngines([`/sach/${data.slug}`]);
+    }
   } catch (error) {
     handlePrismaError(error, path);
   }
@@ -291,6 +298,9 @@ export async function createArticleAction(formData: FormData) {
     await syncArticleFaqs(article.id, data.faqs);
     await syncArticleSources(article.id, data.sources);
     await syncArticleAffiliateLink(article.id, data.title, data.slug, mainBookId);
+    if (data.status === ArticleStatus.PUBLISHED) {
+      notifySearchEngines([`/bai-viet/${data.slug}`]);
+    }
   } catch (error) {
     handlePrismaError(error, path);
   }
@@ -339,6 +349,9 @@ export async function updateArticleAction(formData: FormData) {
     await syncArticleFaqs(id, data.faqs);
     await syncArticleSources(id, data.sources);
     await syncArticleAffiliateLink(id, data.title, data.slug, mainBookId);
+    if (data.status === ArticleStatus.PUBLISHED) {
+      notifySearchEngines([`/bai-viet/${data.slug}`]);
+    }
   } catch (error) {
     handlePrismaError(error, path);
   }
@@ -852,6 +865,10 @@ async function syncBookAffiliateLink(
         data: { isActive: false },
       });
     }
+    await prisma.affiliateLink.updateMany({
+      where: { bookId },
+      data: { isActive: false },
+    });
     return;
   }
 
@@ -868,6 +885,39 @@ async function syncBookAffiliateLink(
     await prisma.affiliateLink.update({ where: { id: existing.id }, data });
   } else {
     await prisma.affiliateLink.create({ data });
+  }
+
+  // Tự động cập nhật destinationUrl cho toàn bộ bài viết liên kết với cuốn sách này
+  await prisma.affiliateLink.updateMany({
+    where: { bookId, articleId: { not: null } },
+    data: {
+      destinationUrl,
+      isActive: true,
+    },
+  });
+
+  // Tự động tạo link affiliate cho bài viết có sách chính là cuốn này nếu chưa có
+  const mainArticles = await prisma.articleBook.findMany({
+    where: { bookId, role: ArticleBookRole.MAIN },
+    include: { article: { select: { id: true, title: true, slug: true } } },
+  });
+
+  for (const ab of mainArticles) {
+    const articleLink = await prisma.affiliateLink.findFirst({
+      where: { articleId: ab.article.id },
+    });
+    if (!articleLink) {
+      await prisma.affiliateLink.create({
+        data: {
+          articleId: ab.article.id,
+          bookId,
+          label: `Xem sách gợi ý cho bài ${ab.article.title}`,
+          destinationUrl,
+          trackingSlug: await uniqueAffiliateTrackingSlug(`article-${ab.article.slug}`),
+          isActive: true,
+        },
+      });
+    }
   }
 }
 

@@ -10,18 +10,68 @@ export async function GET(
   { params }: { params: Promise<{ trackingSlug: string }> },
 ) {
   const { trackingSlug } = await params;
-  const affiliateLink = await prisma.affiliateLink.findUnique({
+  let affiliateLink = await prisma.affiliateLink.findUnique({
     where: { trackingSlug },
-    select: {
-      id: true,
-      articleId: true,
-      bookId: true,
-      destinationUrl: true,
-      isActive: true,
+    include: {
+      book: { select: { id: true, shopeeAffiliateUrl: true } },
+      article: {
+        select: {
+          id: true,
+          books: {
+            where: { role: "MAIN" },
+            include: { book: { select: { id: true, shopeeAffiliateUrl: true } } },
+            take: 1,
+          },
+        },
+      },
     },
   });
 
-  if (!affiliateLink?.isActive) {
+  // Dynamic fallback nếu chưa có affiliateLink trong DB
+  if (!affiliateLink) {
+    if (trackingSlug.startsWith("book-")) {
+      const bookSlug = trackingSlug.replace(/^book-/, "");
+      const book = await prisma.book.findUnique({
+        where: { slug: bookSlug },
+        select: { id: true, shopeeAffiliateUrl: true },
+      });
+      if (book?.shopeeAffiliateUrl) {
+        return NextResponse.redirect(book.shopeeAffiliateUrl, 302);
+      }
+    } else if (trackingSlug.startsWith("article-")) {
+      const articleSlug = trackingSlug.replace(/^article-/, "");
+      const article = await prisma.article.findUnique({
+        where: { slug: articleSlug },
+        include: {
+          books: {
+            include: { book: { select: { id: true, shopeeAffiliateUrl: true } } },
+            take: 1,
+          },
+        },
+      });
+      const bookUrl = article?.books[0]?.book?.shopeeAffiliateUrl;
+      if (bookUrl) {
+        return NextResponse.redirect(bookUrl, 302);
+      }
+    }
+
+    const response = NextResponse.redirect(siteUrl("/"), 302);
+    response.headers.set("X-Robots-Tag", "noindex");
+    return response;
+  }
+
+  if (!affiliateLink.isActive) {
+    const response = NextResponse.redirect(siteUrl("/"), 302);
+    response.headers.set("X-Robots-Tag", "noindex");
+    return response;
+  }
+
+  const targetUrl =
+    affiliateLink.book?.shopeeAffiliateUrl ||
+    affiliateLink.article?.books[0]?.book?.shopeeAffiliateUrl ||
+    affiliateLink.destinationUrl;
+
+  if (!targetUrl) {
     const response = NextResponse.redirect(siteUrl("/"), 302);
     response.headers.set("X-Robots-Tag", "noindex");
     return response;
@@ -29,7 +79,6 @@ export async function GET(
 
   const forwardedFor = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const realIp = request.headers.get("x-real-ip");
-
   const userAgent = request.headers.get("user-agent");
   const referer = request.headers.get("referer");
   const ipHash = hashIp(forwardedFor || realIp);
@@ -47,7 +96,7 @@ export async function GET(
     });
   });
 
-  const response = NextResponse.redirect(affiliateLink.destinationUrl, 302);
+  const response = NextResponse.redirect(targetUrl, 302);
   response.headers.set("X-Robots-Tag", "noindex");
   return response;
 }
