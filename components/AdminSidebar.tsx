@@ -13,7 +13,9 @@ const items = [
   { href: "/admin/categories", label: "Chủ đề" },
   { href: "/admin/pain-points", label: "Nỗi đau" },
   { href: "/admin/audiences", label: "Đối tượng" },
-  { href: "/admin/ai", label: "AI" },
+  { href: "/admin/ai", label: "AI Autopilot" },
+  { href: "/admin/ai-planner", label: "🤖 AI Content Planner" },
+  { href: "/admin/quotes", label: "💬 Trích dẫn & Quotes" },
 ];
 
 export function AdminSidebar() {

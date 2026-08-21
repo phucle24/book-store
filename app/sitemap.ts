@@ -3,6 +3,7 @@ import { ArticleStatus, BookStatus } from "@prisma/client";
 import { editorialPersonas } from "@/lib/editorial-personas";
 import { prisma } from "@/lib/prisma";
 import { siteUrl } from "@/lib/seo";
+import { QUOTE_THEMES } from "@/lib/quote-themes";
 
 export const revalidate = 3600;
 
@@ -15,11 +16,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     "/cach-chung-toi-danh-gia",
     "/tiep-thi-lien-ket",
     "/ve-chung-toi",
+    "/trich-dan",
   ].map((path) => ({
     url: siteUrl(path),
     lastModified: new Date(),
     changeFrequency: "weekly" as const,
-    priority: path === "/" ? 1 : 0.7,
+    priority: path === "/" ? 1 : path === "/trich-dan" ? 0.8 : 0.7,
+  }));
+
+  const quoteThemeRoutes = QUOTE_THEMES.map((theme) => ({
+    url: siteUrl(`/trich-dan/${theme.slug}`),
+    lastModified: new Date(),
+    changeFrequency: "weekly" as const,
+    priority: 0.75,
   }));
 
   try {
@@ -67,6 +76,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
     return [
       ...staticRoutes,
+      ...quoteThemeRoutes,
       ...articles.map((item) => ({
         url: siteUrl(`/bai-viet/${item.slug}`),
         lastModified: item.updatedAt,

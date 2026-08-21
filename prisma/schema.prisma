@@ -124,6 +124,7 @@ model Book {
   researchRuns       ResearchRun[]   @relation("ResearchRunBook")
   comments           Comment[]
   reactions          ArticleReaction[]
+  quotes             Quote[]
 }
 
 model Category {
@@ -507,4 +508,19 @@ model Subscriber {
 
   @@index([createdAt])
   @@index([painPointId])
+}
+
+model Quote {
+  id          String   @id @default(cuid())
+  bookId      String?
+  content     String
+  attribution String?
+  themes      String[]
+  isPublished Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  book        Book?    @relation(fields: [bookId], references: [id], onDelete: SetNull)
+
+  @@index([bookId, isPublished])
 }

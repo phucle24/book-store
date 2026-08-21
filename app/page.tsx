@@ -67,7 +67,7 @@ export default async function HomePage() {
         <div className="mx-auto grid max-w-6xl gap-10 px-4 py-14 sm:px-6 md:grid-cols-[1.1fr_0.9fr] md:py-20 lg:px-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-800">
-              Blog review sách affiliate ethical
+              Blog review sách
             </p>
             <h1 className="mt-4 max-w-3xl text-4xl font-semibold leading-tight text-stone-950 sm:text-5xl">
               Tìm đúng cuốn sách cho giai đoạn bạn đang đi qua

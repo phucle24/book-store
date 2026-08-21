@@ -48,6 +48,33 @@ export default function RootLayout({
         <Header />
         <main className="flex-1">{children}</main>
         <Footer />
+        {/* Global clipboard handler for .copy-btn elements */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('.copy-btn');
+  if (!btn) return;
+  var text = btn.dataset.copy || btn.closest('[data-copy]')?.dataset.copy || '';
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(function() {
+    var original = btn.textContent;
+    btn.textContent = '✓ Đã copy!';
+    setTimeout(function() { btn.textContent = original; }, 1800);
+  }).catch(function() {
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    btn.textContent = '✓ Đã copy!';
+    setTimeout(function() { btn.textContent = 'Copy caption'; }, 1800);
+  });
+});
+            `.trim(),
+          }}
+        />
       </body>
     </html>
   );
