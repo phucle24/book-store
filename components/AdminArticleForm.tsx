@@ -1,3 +1,5 @@
+"use client";
+
 import type {
   Article,
   ArticleBook,
@@ -10,6 +12,7 @@ import type {
   PainPoint,
 } from "@prisma/client";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
+import { ImageUploadField } from "@/components/ImageUploadField";
 import { getArticleQualitySummary } from "@/lib/content-quality";
 import { editorialPersonas } from "@/lib/editorial-personas";
 
@@ -103,7 +106,14 @@ export function AdminArticleForm({
               <option value="ARCHIVED">ARCHIVED</option>
             </select>
           </label>
-          <TextField label="Cover image URL" name="coverImage" defaultValue={article?.coverImage} />
+          <div className="md:col-span-2">
+            <ImageUploadField
+              label="Ảnh bìa bài viết"
+              name="coverImage"
+              currentValue={article?.coverImage}
+              placeholder="https://example.com/article-cover.jpg"
+            />
+          </div>
           <TextField
             label="Ngày publish"
             name="publishedAt"

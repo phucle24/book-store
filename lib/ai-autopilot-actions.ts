@@ -1631,6 +1631,7 @@ function firstError(error: z.ZodError) {
 }
 
 function isValidUrl(value: string) {
+  if (value.startsWith("/")) return true;
   try {
     new URL(value);
     return true;

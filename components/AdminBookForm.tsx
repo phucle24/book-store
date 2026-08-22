@@ -1,4 +1,7 @@
+"use client";
+
 import type { Audience, Book, Category, PainPoint } from "@prisma/client";
+import { ImageUploadField } from "@/components/ImageUploadField";
 
 type BookWithRelations = Partial<Book> & {
   categories?: Category[];
@@ -29,19 +32,52 @@ export function AdminBookForm({
     <form action={action} className="space-y-6">
       {book?.id ? <input type="hidden" name="id" value={book.id} /> : null}
 
-      <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-stone-950">Thông tin chính</h2>
+      {/* 🌟 KHU VỰC TRỌNG TÂM DÀNH CHO ADMIN: SHOPEE & COVER IMAGE */}
+      <section className="rounded-3xl border-2 border-amber-500/40 bg-gradient-to-br from-amber-50/80 via-white to-amber-50/30 p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-800 px-3 py-1 text-xs font-semibold text-white">
+              ⚡ Nhiệm vụ Admin chính
+            </span>
+            <h2 className="mt-2 text-lg font-bold text-stone-950">
+              Affiliate Link & Ảnh Bìa Sách
+            </h2>
+            <p className="mt-0.5 text-xs text-stone-600">
+              Website vận hành 100% tự động bằng AI. Bạn chỉ cần cập nhật link Shopee thực tế và link ảnh bìa nếu muốn.
+            </p>
+          </div>
+          <button
+            type="submit"
+            className="rounded-full bg-stone-950 px-6 py-2.5 text-sm font-semibold text-white shadow-md hover:bg-amber-900 transition"
+          >
+            Lưu nhanh
+          </button>
+        </div>
+
         <div className="mt-5 grid gap-4 md:grid-cols-2">
-          <TextField label="Tên sách" name="title" defaultValue={book?.title} required />
-          <TextField label="Slug" name="slug" defaultValue={book?.slug} />
-          <TextField label="Tác giả" name="author" defaultValue={book?.author} required />
-          <TextField label="Nhà xuất bản" name="publisher" defaultValue={book?.publisher} />
-          <TextField label="Cover image URL" name="coverImage" defaultValue={book?.coverImage} />
           <TextField
             label="Shopee affiliate URL"
             name="shopeeAffiliateUrl"
             defaultValue={book?.shopeeAffiliateUrl}
+            placeholder="https://shope.ee/... hoặc https://shopee.vn/..."
           />
+          <ImageUploadField
+            label="Ảnh bìa sách"
+            name="coverImage"
+            currentValue={book?.coverImage}
+            placeholder="https://example.com/cover.jpg"
+          />
+        </div>
+      </section>
+
+      {/* THÔNG TIN CHUNG (AI ĐÃ ĐIỀN TỰ ĐỘNG, CÓ THỂ ĐIỀU CHỈNH KHI CẦN) */}
+      <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+        <h2 className="text-base font-semibold text-stone-950">Thông tin cơ bản (AI Tự động)</h2>
+        <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <TextField label="Tên sách" name="title" defaultValue={book?.title} required />
+          <TextField label="Slug" name="slug" defaultValue={book?.slug} />
+          <TextField label="Tác giả" name="author" defaultValue={book?.author} required />
+          <TextField label="Nhà xuất bản" name="publisher" defaultValue={book?.publisher} />
           <TextField
             label="Điểm biên tập tổng (1-5)"
             name="editorialScore"
@@ -68,7 +104,7 @@ export function AdminBookForm({
           <textarea
             name="description"
             required
-            rows={5}
+            rows={4}
             defaultValue={book?.description}
             className="mt-2 w-full rounded-2xl border border-stone-300 px-4 py-3 text-sm leading-6 outline-none focus:border-amber-700 focus:ring-4 focus:ring-amber-100"
           />
@@ -139,6 +175,7 @@ function TextField({
   step,
   min,
   max,
+  placeholder,
 }: {
   label: string;
   name: string;
@@ -148,6 +185,7 @@ function TextField({
   step?: string;
   min?: string;
   max?: string;
+  placeholder?: string;
 }) {
   return (
     <label className="block">
@@ -159,6 +197,7 @@ function TextField({
         min={min}
         max={max}
         required={required}
+        placeholder={placeholder}
         defaultValue={defaultValue || ""}
         className="mt-2 w-full rounded-2xl border border-stone-300 px-4 py-3 text-sm outline-none focus:border-amber-700 focus:ring-4 focus:ring-amber-100"
       />

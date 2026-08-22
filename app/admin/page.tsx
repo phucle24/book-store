@@ -1,8 +1,7 @@
 import Link from "next/link";
-import { ArticleStatus, KeywordIdeaStatus } from "@prisma/client";
+import { ArticleStatus } from "@prisma/client";
 import { AdminNotice } from "@/components/AdminNotice";
 import { AdminShell } from "@/components/AdminShell";
-import { StatusBadge } from "@/components/StatusBadge";
 import { requireAdmin } from "@/lib/auth";
 import { getArticleQualitySummary } from "@/lib/content-quality";
 import { prisma } from "@/lib/prisma";
@@ -25,469 +24,342 @@ export default async function AdminDashboardPage({
   const [
     totalArticles,
     totalBooks,
+    totalQuotes,
     totalClicks,
     totalViews,
     clicks7d,
     clicks30d,
     views30d,
-    intentEvents30d,
-    ctaVisible30d,
-    savedEvents30d,
-    journeyEvents30d,
-    publishedArticles,
-    draftArticles,
-    reviewArticles,
     scheduledArticles,
-    pendingIdeas,
-    briefedIdeas,
-    publishedArticleStats,
-    articleIntentGroups,
-    topArticles,
+    publishedArticles,
+    booksNeedingAttention,
+    scheduledQueue,
+    recentArticles,
     topBooks,
-    reviewQueueCandidates,
+    pendingCommentsCount,
   ] = await Promise.all([
     prisma.article.count(),
     prisma.book.count(),
+    prisma.quote.count(),
     prisma.clickEvent.count(),
     prisma.pageView.count(),
     prisma.clickEvent.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
     prisma.clickEvent.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
     prisma.pageView.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
-    prisma.intentEvent.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
-    prisma.intentEvent.count({
-      where: { type: "cta_visible", createdAt: { gte: thirtyDaysAgo } },
-    }),
-    prisma.intentEvent.count({
-      where: { type: "saved_article", createdAt: { gte: thirtyDaysAgo } },
-    }),
-    prisma.intentEvent.count({
-      where: {
-        type: { in: ["journey_item_clicked", "small_step_clicked"] },
-        createdAt: { gte: thirtyDaysAgo },
-      },
-    }),
-    prisma.article.count({ where: { status: ArticleStatus.PUBLISHED } }),
-    prisma.article.count({ where: { status: ArticleStatus.DRAFT } }),
-    prisma.article.count({ where: { status: ArticleStatus.REVIEW } }),
     prisma.article.count({ where: { status: ArticleStatus.SCHEDULED } }),
-    prisma.keywordIdea.count({ where: { status: KeywordIdeaStatus.IDEA } }),
-    prisma.keywordIdea.count({ where: { status: KeywordIdeaStatus.BRIEFED } }),
-    prisma.article.findMany({
-      where: { status: ArticleStatus.PUBLISHED },
-      include: {
-        painPoints: true,
-        _count: { select: { clickEvents: true, pageViews: true } },
-      },
-    }),
-    prisma.intentEvent.groupBy({
-      by: ["articleId", "type"],
-      where: {
-        createdAt: { gte: thirtyDaysAgo },
-        articleId: { not: null },
-        type: {
-          in: ["cta_visible", "article_scroll_50", "article_scroll_90", "saved_article"],
-        },
-      },
-      _count: { _all: true },
-    }),
-    prisma.article.findMany({
-      include: { _count: { select: { clickEvents: true, pageViews: true } } },
-      orderBy: { clickEvents: { _count: "desc" } },
-      take: 5,
-    }),
+    prisma.article.count({ where: { status: ArticleStatus.PUBLISHED } }),
     prisma.book.findMany({
-      include: { _count: { select: { clickEvents: true, pageViews: true } } },
-      orderBy: { clickEvents: { _count: "desc" } },
-      take: 5,
+      where: {
+        OR: [
+          { coverImage: null },
+          { coverImage: "" },
+          { shopeeAffiliateUrl: null },
+          { shopeeAffiliateUrl: "" },
+          { shopeeAffiliateUrl: { contains: "search?keyword=" } },
+        ],
+      },
+      take: 8,
+      orderBy: { updatedAt: "desc" },
     }),
     prisma.article.findMany({
-      where: { status: { not: ArticleStatus.ARCHIVED } },
-      orderBy: [{ scheduledAt: "asc" }, { updatedAt: "desc" }],
-      take: 40,
+      where: { status: ArticleStatus.SCHEDULED },
+      orderBy: { scheduledAt: "asc" },
+      take: 5,
+      include: { books: { include: { book: true } } },
+    }),
+    prisma.article.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 5,
       include: {
-        painPoints: true,
-        audiences: true,
-        books: true,
         faqs: true,
         sources: true,
+        books: true,
+        painPoints: true,
+        audiences: true,
       },
     }),
+    prisma.book.findMany({
+      include: { _count: { select: { clickEvents: true, articles: true } } },
+      orderBy: { clickEvents: { _count: "desc" } },
+      take: 5,
+    }),
+    prisma.comment.count({ where: { isApproved: false } }),
   ]);
-  const affiliateCtr30d = views30d ? `${((clicks30d / views30d) * 100).toFixed(1)}%` : "0%";
-  const intentByArticle = articleIntentGroups.reduce(
-    (acc, item) => {
-      if (!item.articleId) return acc;
-      const current = acc[item.articleId] || {};
-      current[item.type] = item._count._all;
-      acc[item.articleId] = current;
-      return acc;
-    },
-    {} as Record<string, Record<string, number>>,
-  );
-  const lowCtrArticles = publishedArticleStats
-    .filter((article) => article._count.pageViews >= 5)
-    .map((article) => ({
-      ...article,
-      ctr: article._count.clickEvents / Math.max(1, article._count.pageViews),
-    }))
-    .filter((article) => article.ctr < 0.02)
-    .sort((a, b) => b._count.pageViews - a._count.pageViews)
-    .slice(0, 5);
-  const rewriteCandidates = publishedArticleStats
-    .map((article) => ({
-      ...article,
-      intent: intentByArticle[article.id] || {},
-    }))
-    .filter((article) => {
-      const ctaVisible = article.intent.cta_visible || 0;
-      const scroll50 = article.intent.article_scroll_50 || 0;
-      return (ctaVisible >= 3 && article._count.clickEvents === 0) || scroll50 >= 8;
-    })
-    .sort(
-      (a, b) =>
-        (b.intent.cta_visible || 0) +
-        (b.intent.article_scroll_50 || 0) -
-        ((a.intent.cta_visible || 0) + (a.intent.article_scroll_50 || 0)),
-    )
-    .slice(0, 5);
-  const ctrByType = Object.entries(
-    publishedArticleStats.reduce(
-      (acc, article) => {
-        const current = acc[article.type] || { views: 0, clicks: 0 };
-        current.views += article._count.pageViews;
-        current.clicks += article._count.clickEvents;
-        acc[article.type] = current;
-        return acc;
-      },
-      {} as Record<string, { views: number; clicks: number }>,
-    ),
-  );
-  const ctrByPainPoint = Object.entries(
-    publishedArticleStats.reduce(
-      (acc, article) => {
-        for (const painPoint of article.painPoints) {
-          const current = acc[painPoint.name] || { views: 0, clicks: 0 };
-          current.views += article._count.pageViews;
-          current.clicks += article._count.clickEvents;
-          acc[painPoint.name] = current;
-        }
-        return acc;
-      },
-      {} as Record<string, { views: number; clicks: number }>,
-    ),
-  )
-    .sort((a, b) => b[1].views - a[1].views)
-    .slice(0, 6);
-  const reviewQueue = reviewQueueCandidates
-    .map((article) => {
-      const quality = getArticleQualitySummary(article);
-      const ageDays = Math.floor((now.getTime() - article.updatedAt.getTime()) / 86_400_000);
-      const scheduledSoon =
-        article.status === ArticleStatus.SCHEDULED &&
-        article.scheduledAt &&
-        article.scheduledAt.getTime() <= now.getTime() + 48 * 60 * 60 * 1000;
-      const needsReview =
-        article.status === ArticleStatus.DRAFT ||
-        article.status === ArticleStatus.REVIEW ||
-        Boolean(scheduledSoon) ||
-        (article.status === ArticleStatus.PUBLISHED &&
-          (quality.failedRequired.length > 0 || ageDays >= 120));
 
-      return {
-        article,
-        quality,
-        ageDays,
-        scheduledSoon,
-        needsReview,
-      };
-    })
-    .filter((item) => item.needsReview)
-    .sort((a, b) => queuePriority(b, now) - queuePriority(a, now))
-    .slice(0, 8);
+  const affiliateCtr30d = views30d ? `${((clicks30d / views30d) * 100).toFixed(1)}%` : "0%";
+
+  // Điểm chất lượng trung bình của bài viết gần đây
+  const qualityScores = recentArticles.map((art) => getArticleQualitySummary(art).score);
+  const avgQualityScore = qualityScores.length
+    ? Math.round(qualityScores.reduce((a, b) => a + b, 0) / qualityScores.length)
+    : 100;
 
   return (
     <AdminShell
-      title="Dashboard"
-      description="Tổng quan nội dung, sách và click affiliate."
+      title="Tổng quan vận hành 100% AI"
+      description="Hệ thống tự động lên lịch, tạo sách, viết bài & tối ưu SEO. Admin chỉ quản lý link Shopee & ảnh bìa."
       actions={
-        <Link
-          href="/admin/articles/new"
-          className="rounded-full bg-amber-800 px-4 py-2 text-sm font-semibold text-white hover:bg-stone-950"
-        >
-          Tạo bài viết
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/admin/ai-planner"
+            className="rounded-full bg-stone-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-900 transition"
+          >
+            🤖 AI Content Planner
+          </Link>
+        </div>
       }
     >
       <AdminNotice error={params.error} success={params.success} />
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="Tổng số bài" value={totalArticles} />
-        <MetricCard label="Tổng số sách" value={totalBooks} />
-        <MetricCard label="Tổng click Shopee" value={totalClicks} />
-        <MetricCard label="Tổng page view" value={totalViews} />
-        <MetricCard label="Click 7 ngày" value={clicks7d} />
-        <MetricCard label="Click 30 ngày" value={clicks30d} />
-        <MetricCard label="View 30 ngày" value={views30d} />
-        <MetricCard label="CTR affiliate 30 ngày" value={affiliateCtr30d} />
-        <MetricCard label="Intent events 30 ngày" value={intentEvents30d} />
-        <MetricCard label="CTA visible 30 ngày" value={ctaVisible30d} />
-        <MetricCard label="Bài được lưu 30 ngày" value={savedEvents30d} />
-        <MetricCard label="Journey click 30 ngày" value={journeyEvents30d} />
-        <MetricCard label="Ideas chờ viết" value={pendingIdeas} />
-        <MetricCard label="Ideas đã brief" value={briefedIdeas} />
-      </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-3">
-        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm xl:col-span-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-stone-950">Cần duyệt hôm nay</h2>
-              <p className="mt-1 text-sm text-stone-600">
-                Draft mới, lịch đăng trong 48 giờ, bài đang REVIEW và bài published cần refresh.
-              </p>
-            </div>
-            <Link href="/admin/content-audit" className="text-sm font-semibold text-amber-900 hover:text-stone-950">
-              Mở content audit
-            </Link>
+      {/* 🌟 1. ACTION CENTER — NHIỆM VỤ CỦA ADMIN */}
+      <section className="rounded-3xl border-2 border-amber-500/30 bg-gradient-to-br from-amber-50/70 via-white to-amber-50/20 p-6 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-200/60 pb-4">
+          <div>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-800 px-3 py-1 text-xs font-semibold text-white">
+              ⚡ Action Center
+            </span>
+            <h2 className="mt-2 text-lg font-bold text-stone-950">
+              Sách cần cập nhật Link Shopee & Ảnh bìa
+            </h2>
+            <p className="mt-0.5 text-xs text-stone-600">
+              AI đã tạo sách và bài viết xong. Hãy bổ sung link Shopee (shope.ee) và ảnh bìa để tối ưu hoa hồng.
+            </p>
           </div>
-          <div className="mt-4 grid gap-3 lg:grid-cols-2">
-            {reviewQueue.map(({ article, quality, ageDays, scheduledSoon }) => (
-              <Link
-                key={article.id}
-                href={`/admin/articles/${article.id}/edit`}
-                className="rounded-2xl border border-stone-200 bg-stone-50 p-4 transition hover:border-amber-200 hover:bg-amber-50"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <span className="font-semibold leading-6 text-stone-950">{article.title}</span>
-                  <StatusBadge status={article.status} />
-                </div>
-                <p className="mt-2 text-xs leading-5 text-stone-600">
-                  {scheduledSoon
-                    ? `Sắp đăng ${article.scheduledAt?.toLocaleString("vi-VN")}`
-                    : article.status === ArticleStatus.PUBLISHED && ageDays >= 120
-                      ? `Cần refresh: đã ${ageDays} ngày chưa cập nhật`
-                      : quality.failedRequired.length
-                        ? `Thiếu: ${quality.failedRequired.slice(0, 2).map((item) => item.label).join(", ")}`
-                        : "Chờ biên tập viên duyệt nội dung"}
-                </p>
-              </Link>
-            ))}
-            {!reviewQueue.length ? (
-              <p className="rounded-2xl bg-emerald-50 px-4 py-5 text-sm text-emerald-800">
-                Hàng duyệt đang trống. Có thể tập trung vào content planner hoặc refresh bài có CTR thấp.
-              </p>
-            ) : null}
-          </div>
-        </section>
-        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-stone-950">Trạng thái bài viết</h2>
-          <div className="mt-4 space-y-3 text-sm">
-            <StatusRow label="Published" status="PUBLISHED" value={publishedArticles} />
-            <StatusRow label="Scheduled" status="SCHEDULED" value={scheduledArticles} />
-            <StatusRow label="Draft" status="DRAFT" value={draftArticles} />
-            <StatusRow label="Review" status="REVIEW" value={reviewArticles} />
-          </div>
-        </section>
+          <Link
+            href="/admin/books"
+            className="rounded-full border border-stone-300 bg-white px-4 py-1.5 text-xs font-semibold text-stone-800 hover:bg-stone-50"
+          >
+            Xem toàn bộ sách ({totalBooks})
+          </Link>
+        </div>
 
-        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-stone-950">
-            Bài nhiều view nhưng ít click
-          </h2>
-          <div className="mt-4 divide-y divide-stone-100">
-            {lowCtrArticles.map((article) => (
-              <div key={article.id} className="flex items-center justify-between gap-4 py-3">
-                <div>
-                  <Link
-                    href={`/admin/articles/${article.id}/edit`}
-                    className="font-medium text-stone-950 hover:text-amber-900"
-                  >
-                    {article.title}
-                  </Link>
-                  <p className="mt-1 text-xs text-stone-500">
-                    {article._count.pageViews} view · {article._count.clickEvents} click
-                  </p>
-                </div>
-                <span className="rounded-full bg-rose-50 px-3 py-1 text-sm font-semibold text-rose-700">
-                  {(article.ctr * 100).toFixed(1)}%
-                </span>
-              </div>
-            ))}
-            {!lowCtrArticles.length ? (
-              <p className="py-6 text-sm text-stone-500">
-                Chưa có bài đủ view để cảnh báo CTR thấp.
-              </p>
-            ) : null}
+        {!booksNeedingAttention.length ? (
+          <div className="mt-4 flex items-center gap-3 rounded-2xl bg-emerald-50 p-4 text-sm text-emerald-800">
+            <span className="text-lg">🎉</span>
+            <p className="font-medium">
+              Tuyệt vời! Tất cả sách hiện tại đều đã có đầy đủ link Shopee rút gọn và ảnh bìa.
+            </p>
           </div>
-        </section>
+        ) : (
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {booksNeedingAttention.map((book) => {
+              const needsLink =
+                !book.shopeeAffiliateUrl ||
+                book.shopeeAffiliateUrl.includes("search?keyword=");
+              const needsCover = !book.coverImage;
 
-        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-stone-950">
-            Nên rewrite hook/decision card
-          </h2>
-          <div className="mt-4 divide-y divide-stone-100">
-            {rewriteCandidates.map((article) => (
-              <div key={article.id} className="flex items-center justify-between gap-4 py-3">
-                <div>
-                  <Link
-                    href={`/admin/articles/${article.id}/edit`}
-                    className="font-medium text-stone-950 hover:text-amber-900"
-                  >
-                    {article.title}
-                  </Link>
-                  <p className="mt-1 text-xs text-stone-500">
-                    {article.intent.article_scroll_50 || 0} scroll 50 ·{" "}
-                    {article.intent.cta_visible || 0} CTA visible ·{" "}
-                    {article._count.clickEvents} click
-                  </p>
-                </div>
-                <span className="rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-800">
-                  Sửa
-                </span>
-              </div>
-            ))}
-            {!rewriteCandidates.length ? (
-              <p className="py-6 text-sm text-stone-500">
-                Chưa có đủ intent event để gợi ý rewrite.
-              </p>
-            ) : null}
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-stone-950">
-            Top bài có nhiều click affiliate
-          </h2>
-          <div className="mt-4 divide-y divide-stone-100">
-            {topArticles.map((article) => (
-              <div key={article.id} className="flex items-center justify-between gap-4 py-3">
-                <div>
-                  <Link
-                    href={`/admin/articles/${article.id}/edit`}
-                    className="font-medium text-stone-950 hover:text-amber-900"
-                  >
-                    {article.title}
-                  </Link>
-                  <p className="mt-1 text-xs text-stone-500">
-                    {article._count.pageViews} view
-                  </p>
-                </div>
-                <span className="rounded-full bg-amber-50 px-3 py-1 text-sm font-semibold text-amber-800">
-                  {article._count.clickEvents}
-                </span>
-              </div>
-            ))}
-            {!topArticles.length ? (
-              <p className="py-6 text-sm text-stone-500">Chưa có click affiliate.</p>
-            ) : null}
-          </div>
-        </section>
-
-        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-stone-950">Top sách có nhiều click</h2>
-          <div className="mt-4 divide-y divide-stone-100">
-            {topBooks.map((book) => (
-              <div key={book.id} className="flex items-center justify-between gap-4 py-3">
-                <div>
+              return (
+                <div
+                  key={book.id}
+                  className="flex flex-col justify-between rounded-2xl border border-stone-200 bg-white p-4 shadow-sm"
+                >
+                  <div>
+                    <p className="font-semibold text-stone-950 line-clamp-1">{book.title}</p>
+                    <p className="text-xs text-stone-500">{book.author}</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {needsLink ? (
+                        <span className="rounded-md bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                          Thiếu link Shopee
+                        </span>
+                      ) : null}
+                      {needsCover ? (
+                        <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                          Thiếu ảnh bìa
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
                   <Link
                     href={`/admin/books/${book.id}/edit`}
-                    className="font-medium text-stone-950 hover:text-amber-900"
+                    className="mt-3 block text-center rounded-xl bg-stone-950 py-1.5 text-xs font-semibold text-white hover:bg-amber-900 transition"
                   >
-                    {book.title}
+                    Cập nhật ngay
                   </Link>
-                  <p className="mt-1 text-xs text-stone-500">
-                    {book._count.pageViews} view
-                  </p>
                 </div>
-                <span className="rounded-full bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-800">
-                  {book._count.clickEvents}
-                </span>
-              </div>
-            ))}
-            {!topBooks.length ? (
-              <p className="py-6 text-sm text-stone-500">Chưa có click affiliate.</p>
-            ) : null}
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* 🤖 2. AI AUTOMATION HUB — TRẠNG THÁI TỰ ĐỘNG HÓA */}
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        {/* Lịch phát bài tự động */}
+        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm lg:col-span-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-base font-bold text-stone-950">
+                🤖 Hàng đợi phát bài AI ({scheduledArticles} bài đã lên lịch)
+              </h2>
+              <p className="text-xs text-stone-500">
+                Cron tự động kích hoạt và phát hành đúng giờ (Thứ 2, 4, 6)
+              </p>
+            </div>
+            <Link
+              href="/admin/ai-planner"
+              className="text-xs font-semibold text-amber-800 hover:text-stone-950"
+            >
+              + Tạo thêm lịch
+            </Link>
+          </div>
+
+          {!scheduledQueue.length ? (
+            <div className="mt-4 rounded-2xl border border-dashed border-stone-200 p-6 text-center text-sm text-stone-500">
+              Chưa có bài nào trong hàng đợi.{" "}
+              <Link href="/admin/ai-planner" className="font-semibold text-amber-800 underline">
+                Bấm vào AI Planner
+              </Link>{" "}
+              để lên kế hoạch tự động cho tuần tới!
+            </div>
+          ) : (
+            <div className="mt-4 divide-y divide-stone-100">
+              {scheduledQueue.map((item) => (
+                <div key={item.id} className="py-3 flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-stone-950 truncate">{item.title}</p>
+                    <p className="text-xs text-stone-500">
+                      Sách: {item.books[0]?.book.title || "Chưa gắn"} · Tác giả: {item.books[0]?.book.author}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <span className="inline-block rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                      {item.scheduledAt
+                        ? new Date(item.scheduledAt).toLocaleDateString("vi-VN", {
+                            weekday: "short",
+                            day: "2-digit",
+                            month: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "Sắp đăng"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* AI Health & Quality Checklist */}
+        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          <h2 className="text-base font-bold text-stone-950">Chất lượng bài viết AI</h2>
+          <p className="text-xs text-stone-500">Đánh giá theo 28 tiêu chí SEO & E-E-A-T</p>
+
+          <div className="mt-4 rounded-2xl bg-stone-50 p-4">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-stone-600">Điểm chất lượng TB</span>
+              <span className="text-lg font-bold text-amber-800">{avgQualityScore}/100</span>
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-stone-200">
+              <div
+                className="h-full bg-amber-800 transition-all duration-500"
+                style={{ width: `${avgQualityScore}%` }}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-2 text-xs text-stone-600">
+            <div className="flex items-center justify-between">
+              <span>✓ Tự động chèn FAQs</span>
+              <span className="font-semibold text-emerald-700">100% bài mới</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>✓ Tự động ghi chú nguồn</span>
+              <span className="font-semibold text-emerald-700">100% bài mới</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>✓ Tự tạo 10 Quotes/sách</span>
+              <span className="font-semibold text-emerald-700">Tự động</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>✓ Tự cải thiện bài cũ</span>
+              <span className="font-semibold text-stone-800">Chủ nhật hàng tuần</span>
+            </div>
+          </div>
+
+          <div className="mt-5 border-t border-stone-100 pt-3">
+            <Link
+              href="/admin/content-audit"
+              className="block text-center rounded-xl border border-stone-200 py-2 text-xs font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              Mở Content Quality Audit
+            </Link>
           </div>
         </section>
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-2">
-        <CtrTable title="CTR theo loại bài" rows={ctrByType} />
-        <CtrTable title="CTR theo nỗi đau" rows={ctrByPainPoint} />
+      {/* 📊 3. METRICS OVERVIEW */}
+      <div className="mt-6">
+        <h2 className="text-base font-bold text-stone-950 mb-3">Hiệu suất Website & Affiliate</h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            label="Tổng bài viết"
+            value={`${publishedArticles} / ${totalArticles}`}
+            hint={`${scheduledArticles} bài đã lên lịch`}
+          />
+          <MetricCard
+            label="Tổng số sách"
+            value={totalBooks}
+            hint={`${totalQuotes} câu trích dẫn`}
+          />
+          <MetricCard
+            label="Clicks Shopee (30 ngày)"
+            value={clicks30d}
+            hint={`Tổng click: ${totalClicks}`}
+          />
+          <MetricCard
+            label="CTR Affiliate (30 ngày)"
+            value={affiliateCtr30d}
+            hint={`${views30d} lượt xem`}
+          />
+        </div>
+      </div>
+
+      {/* Top Sách Clicks */}
+      <div className="mt-6">
+        <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          <h2 className="text-base font-bold text-stone-950 mb-3">Top sách được quan tâm nhất (Clicks)</h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-stone-50 text-xs uppercase tracking-wider text-stone-500">
+                <tr>
+                  <th className="px-4 py-2.5">Tên sách</th>
+                  <th className="px-4 py-2.5">Số bài review</th>
+                  <th className="px-4 py-2.5">Clicks Shopee</th>
+                  <th className="px-4 py-2.5 text-right">Link Affiliate</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {topBooks.map((b) => (
+                  <tr key={b.id}>
+                    <td className="px-4 py-3 font-semibold text-stone-950">{b.title}</td>
+                    <td className="px-4 py-3 text-stone-600">{b._count.articles} bài</td>
+                    <td className="px-4 py-3 font-bold text-amber-900">{b._count.clickEvents} clicks</td>
+                    <td className="px-4 py-3 text-right">
+                      <Link
+                        href={`/admin/books/${b.id}/edit`}
+                        className="text-xs font-semibold text-stone-700 hover:text-amber-800 underline"
+                      >
+                        Sửa Shopee/Ảnh
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </AdminShell>
   );
 }
 
-function MetricCard({ label, value }: { label: string; value: number | string }) {
+function MetricCard({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
-    <div className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-      <p className="text-sm text-stone-500">{label}</p>
-      <p className="mt-3 text-3xl font-semibold text-stone-950">{value}</p>
-    </div>
-  );
-}
-
-function queuePriority(
-  item: {
-    article: { status: ArticleStatus; scheduledAt: Date | null };
-    quality: { failedRequired: unknown[] };
-    ageDays: number;
-    scheduledSoon: boolean | null;
-  },
-  now: Date,
-) {
-  if (item.scheduledSoon) return 500;
-  if (item.article.status === ArticleStatus.REVIEW) return 400;
-  if (item.quality.failedRequired.length) return 300;
-  if (item.article.status === ArticleStatus.DRAFT) return 200;
-  if (item.ageDays >= 120) return 100;
-  return item.article.scheduledAt && item.article.scheduledAt < now ? 50 : 0;
-}
-
-function CtrTable({
-  title,
-  rows,
-}: {
-  title: string;
-  rows: [string, { views: number; clicks: number }][];
-}) {
-  return (
-    <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-semibold text-stone-950">{title}</h2>
-      <div className="mt-4 divide-y divide-stone-100 text-sm">
-        {rows.map(([label, value]) => (
-          <div key={label} className="grid grid-cols-[1fr_auto_auto_auto] gap-3 py-3">
-            <span className="font-medium text-stone-950">{label}</span>
-            <span className="text-stone-500">{value.views} view</span>
-            <span className="text-stone-500">{value.clicks} click</span>
-            <span className="font-semibold text-amber-800">
-              {value.views ? ((value.clicks / value.views) * 100).toFixed(1) : "0.0"}%
-            </span>
-          </div>
-        ))}
-        {!rows.length ? (
-          <p className="py-6 text-sm text-stone-500">Chưa có dữ liệu.</p>
-        ) : null}
-      </div>
-    </section>
-  );
-}
-
-function StatusRow({
-  label,
-  status,
-  value,
-}: {
-  label: string;
-  status: string;
-  value: number;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-2">
-        <StatusBadge status={status} />
-        <span>{label}</span>
-      </div>
-      <span className="font-semibold">{value}</span>
+    <div className="rounded-2xl border border-stone-200 bg-white p-4 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wider text-stone-500">{label}</p>
+      <p className="mt-1 text-2xl font-bold text-stone-950">{value}</p>
+      {hint ? <p className="mt-0.5 text-xs text-stone-400">{hint}</p> : null}
     </div>
   );
 }

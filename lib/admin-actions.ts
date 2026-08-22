@@ -252,6 +252,29 @@ export async function updateBookAction(formData: FormData) {
   redirectWithSuccess("/admin/books", "Cập nhật sách thành công.");
 }
 
+export async function quickUpdateBookAction(formData: FormData) {
+  await requireAdmin();
+  const id = requiredId(formData);
+  const coverImage = formData.get("coverImage")?.toString().trim() || null;
+  const shopeeAffiliateUrl = formData.get("shopeeAffiliateUrl")?.toString().trim() || null;
+
+  try {
+    const book = await prisma.book.update({
+      where: { id },
+      data: {
+        coverImage,
+        shopeeAffiliateUrl,
+      },
+    });
+    await syncBookAffiliateLink(id, book.title, book.slug, shopeeAffiliateUrl || undefined);
+  } catch (error) {
+    handlePrismaError(error, `/admin/books/${id}/edit`);
+  }
+
+  revalidateAdmin();
+  redirectWithSuccess("/admin/books", "Cập nhật link Shopee & ảnh bìa thành công.");
+}
+
 export async function deleteBookAction(formData: FormData) {
   await requireAdmin();
   const id = requiredId(formData);
@@ -1059,6 +1082,7 @@ async function checkAdminLoginRateLimit(email: string) {
 }
 
 function isValidUrl(value: string) {
+  if (value.startsWith("/")) return true;
   try {
     new URL(value);
     return true;

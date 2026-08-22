@@ -1,15 +1,16 @@
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
-import { ArticleStatus, BookStatus } from "@prisma/client";
+import { ArticleStatus, BookStatus, ArticleBookRole, Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { notifySearchEngines } from "@/lib/indexing";
+import { ALL_THEME_SLUGS } from "@/lib/quote-themes";
 import OpenAI from "openai";
 
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/cron/ai-planner
- * Runs weekly: generates + writes + schedules new articles automatically.
+ * Runs weekly: discovers NEW books, creates book records + 10 quotes, and writes + schedules articles.
  * Called by system cron (same CRON_SECRET as publish-scheduled).
  *
  * Crontab example (every Monday 01:00 UTC = 08:00 VN):
@@ -36,46 +37,51 @@ export async function POST(request: Request) {
   }
 
   try {
-    // 1. Get books with affiliate URLs
-    const books = await prisma.book.findMany({
-      where: { status: BookStatus.ACTIVE, shopeeAffiliateUrl: { not: null } },
-      include: { painPoints: true, audiences: true },
-    });
+    // 1. Lấy danh sách sách và bài viết hiện có để tránh trùng lặp
+    const [existingBooks, existingArticles, categories, painPoints, audiences] = await Promise.all([
+      prisma.book.findMany({ select: { title: true } }),
+      prisma.article.findMany({ select: { title: true, focusKeyword: true } }),
+      prisma.category.findMany({ select: { id: true, name: true } }),
+      prisma.painPoint.findMany({ select: { id: true, name: true } }),
+      prisma.audience.findMany({ select: { id: true, name: true } }),
+    ]);
 
-    if (!books.length) {
-      return NextResponse.json({ skipped: true, reason: "No active books with affiliate URLs." });
-    }
+    const existingBookTitles = existingBooks.map((b) => b.title);
+    const existingArticleTitles = existingArticles.map((a) => a.title).slice(0, 30).join("; ");
 
-    // 2. Get existing articles to avoid duplicates
-    const existing = await prisma.article.findMany({
-      where: { status: ArticleStatus.PUBLISHED },
-      select: { title: true, focusKeyword: true },
-    });
-    const existingTitles = existing.map((a) => a.title).join(", ");
-
-    // 3. AI generates plan (2 articles per book)
+    // 2. AI đề xuất 3 cuốn SÁCH MỚI chưa có trên website
     const baseURL = process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
     const model = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
     const client = new OpenAI({ apiKey, baseURL, maxRetries: 2, timeout: 90_000 });
-
-    const bookListStr = books
-      .map(
-        (b) =>
-          `ID:${b.id} | ${b.title} | ${b.painPoints.map((p) => p.name).join(",")}`,
-      )
-      .join("\n");
 
     const planCompletion = await client.chat.completions.create({
       model,
       messages: [
         {
           role: "system",
-          content: `Tạo kế hoạch 2 bài viết SEO mới cho mỗi cuốn sách. Trả về JSON array:
-[{"bookId":"...","focusKeyword":"...","angle":"..."}]`,
+          content: `Bạn là Giám đốc Nội dung SEO sách tại Việt Nam.
+Nhiệm vụ: Đề xuất 3 cuốn SÁCH MỚI nổi tiếng, bán chạy tại Việt Nam (Tâm lý, Chữa lành, Kỹ năng, Tài chính) mà TUYỆT ĐỐI CHƯA CÓ trên website.
+Trả về JSON array:
+[
+  {
+    "bookTitle": "...",
+    "author": "...",
+    "bookDescription": "...",
+    "keyLessons": ["...", "..."],
+    "pros": ["...", "..."],
+    "cons": ["..."],
+    "suitableFor": ["..."],
+    "categoryName": "...",
+    "painPointName": "...",
+    "audienceName": "...",
+    "focusKeyword": "...",
+    "angle": "..."
+  }
+]`,
         },
         {
           role: "user",
-          content: `Sách:\n${bookListStr}\n\nBài đã có (không lặp): ${existingTitles || "Chưa có."}`,
+          content: `Sách ĐÃ CÓ (KHÔNG ĐƯỢC CHỌN LẠI):\n${existingBookTitles.join(", ") || "Chưa có."}\n\nBài viết đã có:\n${existingArticleTitles || "Chưa có."}`,
         },
       ],
       temperature: 0.7,
@@ -83,7 +89,20 @@ export async function POST(request: Request) {
     });
 
     const planRaw = planCompletion.choices[0]?.message?.content?.trim() || "[]";
-    let planItems: Array<{ bookId: string; focusKeyword: string; angle: string }>;
+    let planItems: Array<{
+      bookTitle: string;
+      author: string;
+      bookDescription?: string;
+      keyLessons?: string[];
+      pros?: string[];
+      cons?: string[];
+      suitableFor?: string[];
+      categoryName?: string;
+      painPointName?: string;
+      audienceName?: string;
+      focusKeyword: string;
+      angle: string;
+    }> = [];
 
     try {
       const parsed = JSON.parse(planRaw);
@@ -91,14 +110,20 @@ export async function POST(request: Request) {
         ? parsed
         : Array.isArray(parsed.plan)
           ? parsed.plan
-          : Array.isArray(parsed.items)
-            ? parsed.items
-            : [];
+          : Array.isArray(parsed.books)
+            ? parsed.books
+            : Array.isArray(parsed.items)
+              ? parsed.items
+              : [];
     } catch {
       planItems = [];
     }
 
-    // 4. Schedule dates: Mon/Wed/Fri starting next Monday at 08:00 VN (01:00 UTC)
+    if (!planItems.length) {
+      return NextResponse.json({ skipped: true, reason: "No new books generated by AI." });
+    }
+
+    // 3. Lên lịch xuất bản theo tuần (Thứ 2 / Thứ 4 / Thứ 6)
     const startDate = nextMonday();
     const schedule = planItems.map((_, i) => {
       const d = new Date(startDate);
@@ -106,44 +131,166 @@ export async function POST(request: Request) {
       return d;
     });
 
-    const bookMap = new Map(books.map((b) => [b.id, b]));
     const results: string[] = [];
 
-    // 5. Write each article
+    // 4. Tạo Sách Mới + Quotes + Viết bài cho từng cuốn
     for (let i = 0; i < planItems.length; i++) {
       const item = planItems[i];
-      const book = bookMap.get(item.bookId);
-      if (!book) continue;
+      if (!item.bookTitle) continue;
 
       try {
+        // Tìm hoặc tạo sách mới
+        let book = await prisma.book.findFirst({
+          where: { title: { equals: item.bookTitle, mode: "insensitive" } },
+          include: { painPoints: true, audiences: true, categories: true },
+        });
+
+        if (!book) {
+          const bookSlug = await uniqueBookSlug(item.bookTitle);
+          const matchedCategory = categories.find((c) => item.categoryName && c.name.toLowerCase().includes(item.categoryName.toLowerCase()));
+          const matchedPainPoint = painPoints.find((p) => item.painPointName && p.name.toLowerCase().includes(item.painPointName.toLowerCase()));
+          const matchedAudience = audiences.find((a) => item.audienceName && a.name.toLowerCase().includes(item.audienceName.toLowerCase()));
+
+          book = await prisma.book.create({
+            data: {
+              title: item.bookTitle,
+              slug: bookSlug,
+              author: item.author || "Không rõ",
+              description: item.bookDescription || `Sách ${item.bookTitle} của tác giả ${item.author}.`,
+              pros: (item.pros || []).slice(0, 6),
+              cons: (item.cons || []).slice(0, 6),
+              keyLessons: (item.keyLessons || []).slice(0, 6),
+              suitableFor: (item.suitableFor || []).slice(0, 6),
+              status: BookStatus.ACTIVE,
+              shopeeAffiliateUrl: `https://shopee.vn/search?keyword=${encodeURIComponent(item.bookTitle)}`,
+              categories: matchedCategory ? { connect: [{ id: matchedCategory.id }] } : undefined,
+              painPoints: matchedPainPoint ? { connect: [{ id: matchedPainPoint.id }] } : undefined,
+              audiences: matchedAudience ? { connect: [{ id: matchedAudience.id }] } : undefined,
+            },
+            include: { painPoints: true, audiences: true, categories: true },
+          });
+
+          // Tự tạo quotes cho sách mới
+          await generateQuotesForBook(book.id, book.title, book.author, book.description, book.keyLessons);
+        }
+
+        // Viết bài review tuân thủ 100% Content Quality Checklist
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://tramdocmotchut.io.vn";
+        const painPointLinks = book.painPoints
+          .slice(0, 2)
+          .map((p) => `[${p.name}](${siteUrl}/noi-dau/${p.id})`)
+          .join("\n");
+
         const articleCompletion = await client.chat.completions.create({
           model,
           messages: [
             {
               role: "system",
-              content: `Viết bài review sách tiếng Việt. Trả về JSON:
-{"title":"...","slug":"...","excerpt":"...","seoTitle":"...","seoDescription":"...","verdictScore":4.2,"verdictSummary":"...","content":"## Markdown..."}`,
+              content: `Bạn là biên tập viên sách chuyên nghiệp viết review sâu sắc, thực tế, chạm cảm xúc độc giả Việt Nam.
+
+BẮT BUỘC tuân thủ Content Quality Checklist - bài viết phải pass đầy đủ các tiêu chí:
+
+CONTENT MARKDOWN (field "content"):
+- Tối thiểu 1.500 từ thực chất, không padding
+- PHẢI có đúng các heading sau (dùng chính xác các cụm từ này):
+  ## Sách nói về điều gì?
+  ## Góc nhìn sau khi đọc — Đánh giá chi tiết
+  ## Ai nên đọc cuốn sách này?
+  ## Ai không nên đọc?
+  ## Điểm hạn chế cần cân nhắc
+  ## Nên mua nếu / Chưa nên mua nếu
+- PHẢI dùng "tôi" hoặc "chúng tôi" ít nhất 3 lần (giọng người viết thực sự)
+- PHẢI có ít nhất 2 internal link markdown: [văn bản mô tả](/bai-viet/... hoặc /sach/... hoặc /noi-dau/...)
+- PHẢI có chi tiết cụ thể: số trang, tên chương, số liệu, năm xuất bản hoặc tên tác giả đầy đủ
+- PHẢI đề cập nỗi đau của đối tượng trong 200 chữ ĐẦU TIÊN của content
+- KHÔNG dùng các cụm sáo rỗng: "trong thời đại ngày nay", "không thể phủ nhận rằng", "chìa khóa thành công", "hãy cùng khám phá", "đắm chìm", "hành trình khám phá", "tóm lại"
+- KHÔNG chèn link affiliate, URL Shopee hay CTA trong markdown
+- KHÔNG viết phần FAQ trong markdown (FAQ tạo riêng)
+- Câu văn biến thiên tự nhiên: xen lẫn câu ngắn 5-8 chữ và câu dài 20-30 chữ
+
+FAQs (field "faqs"): BẮT BUỘC tạo 3-5 câu hỏi thường gặp thực tế
+
+SOURCES (field "sources"): BẮT BUỘC tạo ít nhất 1 ghi chú nguồn biên tập
+
+SEO (bắt buộc): seoTitle 50-60 ký tự, seoDescription 120-160 ký tự chứa focus keyword
+
+VERDICT (bắt buộc): verdictScore số thực 3.0-5.0, verdictSummary 1-2 câu kết luận sắc bén
+
+Trả về JSON object đúng format:
+{
+  "title": "...",
+  "slug": "slug-khong-dau",
+  "excerpt": "...",
+  "seoTitle": "...",
+  "seoDescription": "...",
+  "verdictScore": 4.2,
+  "verdictSummary": "...",
+  "content": "## Sách nói về điều gì?\\n\\n...",
+  "faqs": [
+    { "question": "...", "answer": "..." },
+    { "question": "...", "answer": "..." },
+    { "question": "...", "answer": "..." }
+  ],
+  "sources": [
+    { "label": "Ghi chú biên tập", "url": "", "note": "Nội dung review dựa trên phân tích sách và trải nghiệm đọc thực tế của biên tập viên Trạm Đọc Một Chút." }
+  ]
+}`,
             },
             {
               role: "user",
-              content: `Sách: ${book.title} — ${book.author}
-Nỗi đau: ${book.painPoints.map((p) => p.name).join(", ")}
-Focus keyword: ${item.focusKeyword}
-Góc bài: ${item.angle}`,
+              content: `Viết bài review PASS ĐẦY ĐỦ content quality checklist cho cuốn sách:
+
+Tên sách: ${book.title}
+Tác giả: ${book.author}
+Mô tả: ${book.description}
+Bài học cốt lõi: ${book.keyLessons.join("; ")}
+Điểm mạnh: ${book.pros.join("; ")}
+Điểm hạn chế (đề cập trung thực): ${book.cons.join("; ")}
+Phù hợp với: ${book.suitableFor.join("; ")}
+Nỗi đau đối tượng (PHẢI đề cập trong 200 chữ đầu): ${book.painPoints.map((p) => p.name).join(", ")}
+Đối tượng: ${book.audiences.map((a) => a.name).join(", ")}
+Focus keyword (xuất hiện tự nhiên đầu bài): ${item.focusKeyword}
+Góc tiếp cận: ${item.angle}
+
+Internal links PHẢI nhúng vào content (ít nhất 2 link):
+${painPointLinks || `[Xem sách ${book.title}](/sach/${book.slug || ""})`}
+[Xem trang sách ${book.title}](/sach/${book.slug || ""})`,
             },
           ],
           temperature: 0.7,
           response_format: { type: "json_object" },
         });
 
-        const raw = articleCompletion.choices[0]?.message?.content?.trim() || "{}";
-        const output = JSON.parse(raw);
+        const rawArticle = articleCompletion.choices[0]?.message?.content?.trim() || "{}";
+        const output: {
+          title?: string;
+          slug?: string;
+          excerpt?: string;
+          seoTitle?: string;
+          seoDescription?: string;
+          verdictScore?: number;
+          verdictSummary?: string;
+          content?: string;
+          faqs?: Array<{ question: string; answer: string }>;
+          sources?: Array<{ label: string; url?: string; note?: string }>;
+        } = JSON.parse(rawArticle);
 
         if (!output.title || !output.content) continue;
 
         const scheduledAt = schedule[i] || startDate;
         const slug = await uniqueArticleSlug(output.slug || output.title);
-        const trackingSlug = `weekly-${slug}`.slice(0, 80);
+        const trackingSlug = `cron-${slug}`.slice(0, 80);
+        const affiliateUrl = book.shopeeAffiliateUrl || `https://shopee.vn/search?keyword=${encodeURIComponent(book.title)}`;
+
+        const faqData = (output.faqs || []).filter((f) => f.question && f.answer);
+        const sourceData = (output.sources || []).filter((s) => s.label);
+        if (!sourceData.length) {
+          sourceData.push({
+            label: "Biên tập viên Trạm Đọc Một Chút",
+            url: "",
+            note: "Dựa trên phân tích nội dung sách và trải nghiệm đọc thực tế.",
+          });
+        }
 
         await prisma.article.create({
           data: {
@@ -163,44 +310,56 @@ Góc bài: ${item.angle}`,
             scheduledAt,
             painPoints: { connect: book.painPoints.map((p) => ({ id: p.id })) },
             audiences: { connect: book.audiences.map((a) => ({ id: a.id })) },
-            books: { create: { bookId: book.id, role: "MAIN", order: 0 } },
+            categories: { connect: book.categories.map((c) => ({ id: c.id })) },
+            books: { create: { bookId: book.id, role: ArticleBookRole.MAIN, order: 0 } },
             affiliateLinks: {
               create: {
                 bookId: book.id,
                 label: `Xem giá ${book.title}`,
-                destinationUrl: book.shopeeAffiliateUrl!,
+                destinationUrl: affiliateUrl,
                 trackingSlug,
                 isActive: true,
               },
             },
+            ...(faqData.length > 0
+              ? {
+                  faqs: {
+                    create: faqData.map((f, idx) => ({
+                      question: f.question,
+                      answer: f.answer,
+                      order: idx,
+                    })),
+                  },
+                }
+              : {}),
+            ...(sourceData.length > 0
+              ? {
+                  sources: {
+                    create: sourceData.map((s, idx) => ({
+                      title: s.label,
+                      url: s.url || null,
+                      note: s.note || null,
+                      order: idx,
+                    })),
+                  },
+                }
+              : {}),
           },
         });
 
         results.push(slug);
       } catch (err) {
-        console.error("Cron AI planner: lỗi viết bài", item.focusKeyword, err);
+        console.error("Cron AI planner: lỗi tạo sách/bài", item.bookTitle, err);
       }
     }
 
-    // 6. Revalidate caches
     revalidatePath("/admin/articles");
+    revalidatePath("/admin/books");
+    revalidatePath("/admin/quotes");
     revalidatePath("/admin/ai-planner");
 
-    // 7. Notify IndexNow for articles scheduled for today
-    const todayArticles = results.filter((_, i) => {
-      const d = schedule[i];
-      return d && d <= new Date();
-    });
-    if (todayArticles.length > 0) {
-      try {
-        notifySearchEngines(todayArticles.map((s) => `/bai-viet/${s}`));
-      } catch {
-        // ignore notify errors
-      }
-    }
-
     return NextResponse.json({
-      scheduled: results.length,
+      createdCount: results.length,
       slugs: results,
       nextRun: new Date(startDate.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString(),
     });
@@ -210,19 +369,95 @@ Góc bài: ${item.angle}`,
   }
 }
 
+async function generateQuotesForBook(
+  bookId: string,
+  title: string,
+  author: string,
+  description: string,
+  keyLessons: string[],
+) {
+  try {
+    const apiKey = process.env.DEEPSEEK_API_KEY;
+    const baseURL = process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
+    const model = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+    if (!apiKey) return;
+
+    const client = new OpenAI({ apiKey, baseURL, maxRetries: 2, timeout: 90_000 });
+    const completion = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: "system",
+          content: `Chắt lọc đúng 10 câu trích dẫn TÂM ĐẮC NHẤT, ĐẮT GIÁ NHẤT từ cuốn sách để làm caption mạng xã hội.
+Gán theme từ danh sách: tinh-yeu, tuoi-tre, dong-luc, song-co-y-nghia, tac-phong-lam-viec, noi-dau-va-chua-lanh.
+Trả về JSON object: { "quotes": [ { "content": "...", "attribution": "Tên sách — Tác giả", "themes": ["dong-luc"] } ] }`,
+        },
+        {
+          role: "user",
+          content: `Sách: ${title}\nTác giả: ${author}\nMô tả: ${description}\nBài học: ${keyLessons.join("; ")}`,
+        },
+      ],
+      temperature: 0.8,
+      response_format: { type: "json_object" },
+    });
+
+    const raw = completion.choices[0]?.message?.content?.trim() || "{}";
+    const parsed = JSON.parse(raw);
+    const quotes: Array<{ content: string; attribution?: string; themes?: string[] }> = Array.isArray(parsed.quotes) ? parsed.quotes : [];
+
+    if (quotes.length > 0) {
+      await prisma.quote.createMany({
+        data: quotes.slice(0, 10).map((q, i) => ({
+          bookId,
+          content: q.content.trim(),
+          attribution: q.attribution || `${title} — ${author}`,
+          themes: (q.themes || []).filter((t) => ALL_THEME_SLUGS.includes(t)),
+          isPublished: true,
+          order: i,
+        })),
+      });
+    }
+  } catch (err) {
+    console.error("Lỗi tự tạo quotes trong cron:", err);
+  }
+}
+
 function nextMonday(): Date {
   const now = new Date();
   const day = now.getDay();
   const daysUntil = day === 1 ? 7 : (8 - day) % 7;
   const monday = new Date(now);
   monday.setDate(now.getDate() + daysUntil);
-  // 08:00 VN = 01:00 UTC
   monday.setUTCHours(1, 0, 0, 0);
   return monday;
 }
 
+async function uniqueBookSlug(base: string): Promise<string> {
+  const cleaned = slugifyClean(base);
+  let candidate = cleaned;
+  let attempts = 0;
+  while (true) {
+    const existing = await prisma.book.findUnique({ where: { slug: candidate }, select: { id: true } });
+    if (!existing) return candidate;
+    attempts++;
+    candidate = `${cleaned}-${attempts}`;
+  }
+}
+
 async function uniqueArticleSlug(base: string): Promise<string> {
-  const cleaned = base
+  const cleaned = slugifyClean(base);
+  let candidate = cleaned;
+  let attempts = 0;
+  while (true) {
+    const existing = await prisma.article.findUnique({ where: { slug: candidate }, select: { id: true } });
+    if (!existing) return candidate;
+    attempts++;
+    candidate = `${cleaned}-${attempts}`;
+  }
+}
+
+function slugifyClean(base: string): string {
+  return base
     .toLowerCase()
     .replace(/[àáạảãâầấậẩẫăằắặẳẵ]/g, "a")
     .replace(/[èéẹẻẽêềếệểễ]/g, "e")
@@ -236,13 +471,4 @@ async function uniqueArticleSlug(base: string): Promise<string> {
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .slice(0, 90);
-
-  let candidate = cleaned;
-  let attempts = 0;
-  while (true) {
-    const existing = await prisma.article.findUnique({ where: { slug: candidate }, select: { id: true } });
-    if (!existing) return candidate;
-    attempts++;
-    candidate = `${cleaned}-${attempts}`;
-  }
 }

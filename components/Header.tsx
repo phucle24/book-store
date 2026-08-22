@@ -9,6 +9,7 @@ const navItems = [
   { href: "/bat-dau", label: "Bắt đầu" },
   { href: "/bai-viet", label: "Bài viết" },
   { href: "/sach", label: "Sách" },
+  { href: "/trich-dan", label: "Trích dẫn" },
   { href: "/cach-chung-toi-danh-gia", label: "Cách đánh giá" },
   { href: "/bai-viet-da-luu", label: "Đã lưu" },
   { href: "/ve-chung-toi", label: "Về chúng tôi" },
