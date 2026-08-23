@@ -91,6 +91,11 @@ export type AutopilotBookDataInput = SourceExtractionInput & {
   focusKeyword?: string | null;
 };
 
+export type InternalLinkSuggestion = {
+  text: string;
+  url: string;
+};
+
 export type AutopilotArticleInput = AutopilotBookDataInput & {
   bookData: unknown;
   reviewInsight?: unknown;
@@ -100,6 +105,7 @@ export type AutopilotArticleInput = AutopilotBookDataInput & {
   audienceName?: string | null;
   tone?: string | null;
   contentMemory?: ContentMemoryExample[];
+  internalLinkSuggestions?: InternalLinkSuggestion[];
 };
 
 export type ContentMemoryExample = {
@@ -117,12 +123,13 @@ export type ContentMemoryExample = {
 };
 
 const editorSystemPrompt =
-  "Bạn là biên tập viên review sách theo hướng cảm xúc, insight người đọc và affiliate ethical. Không bịa trải nghiệm. Không quảng cáo quá đà.";
+  "Bạn là biên tập viên review sách theo hướng cảm xúc, insight người đọc và affiliate ethical. Không bịa trải nghiệm.";
 
 const sharedRules = [
   "Không bịa đã đọc sách nếu dữ liệu không có.",
   "Không dùng câu “cuốn sách này sẽ thay đổi cuộc đời bạn”.",
   "Không quảng cáo quá đà.",
+  "BẮT BUỘC: H2 đầu tiên trong content PHẢI là “## Sách nói về gì?” (đúng chính xác cụm từ này, không thay thế bằng câu khác).",
   "Luôn có phần review chi tiết về sách: đánh giá sau khi đọc, điểm chạm với người đọc, điểm đáng tin, điểm cần cân nhắc.",
   "Luôn có phần “Điểm hạn chế”.",
   "Luôn có phần “Ai nên đọc” và “Ai không nên đọc”.",
@@ -559,6 +566,9 @@ ${JSON.stringify(input.contentMemory || [], null, 2)}
 
 Source notes:
 ${truncateForPrompt(input.sourceNotes)}
+
+Internal links GỢI Ý — BẮT BUỘC chèn ít nhất 2 trong số này vào content bằng markdown [mô tả](url):
+${(input.internalLinkSuggestions || []).map((l) => `- [${l.text}](${l.url})`).join("\n") || "- (Chưa có gợi ý — hãy tự tạo 2 internal link dạng [mô tả](/bai-viet/slug hoặc /noi-dau/slug).)"}
 
 Quy tắc chung:
 ${sharedRules.map((rule) => `- ${rule}`).join("\n")}

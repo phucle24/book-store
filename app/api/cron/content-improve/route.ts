@@ -3,6 +3,7 @@ import { revalidatePath } from "next/cache";
 import { ArticleStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getArticleQualitySummary } from "@/lib/content-quality";
+import { articleAuthorData, resolveEditorialPersona } from "@/lib/editorial-personas";
 import OpenAI from "openai";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +46,7 @@ export async function POST(request: Request) {
         books: { include: { book: true } },
         painPoints: true,
         audiences: true,
+        categories: true,
         faqs: true,
         sources: true,
       },
@@ -72,7 +74,6 @@ export async function POST(request: Request) {
     const baseURL = process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com";
     const model = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
     const client = new OpenAI({ apiKey, baseURL, maxRetries: 2, timeout: 120_000 });
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://tramdocmotchut.io.vn";
 
     const improvedSlugs: string[] = [];
 
@@ -83,10 +84,44 @@ export async function POST(request: Request) {
         ...summary.failedWarnings.map((c) => c.label),
       ].join(", ");
 
-      const painPointLinks = article.painPoints
-        .slice(0, 2)
-        .map((p) => `[${p.name}](${siteUrl}/noi-dau/${p.id})`)
-        .join("\n");
+      // --- Fix: Internal links thật từ DB (pain point slugs + bài liên quan) ---
+      const internalLinks: Array<{ text: string; url: string }> = [];
+
+      for (const pp of article.painPoints.slice(0, 3)) {
+        internalLinks.push({ text: `Sách hay về chủ đề ${pp.name}`, url: `/noi-dau/${pp.slug}` });
+      }
+
+      const relatedOrConditions: Array<Record<string, unknown>> = [];
+      if (article.painPoints.length) {
+        relatedOrConditions.push({
+          painPoints: { some: { id: { in: article.painPoints.map((p) => p.id) } } },
+        });
+      }
+      if (article.categories.length) {
+        relatedOrConditions.push({
+          categories: { some: { id: { in: article.categories.map((c) => c.id) } } },
+        });
+      }
+      if (relatedOrConditions.length) {
+        const relatedArticles = await prisma.article.findMany({
+          where: {
+            status: ArticleStatus.PUBLISHED,
+            id: { not: article.id },
+            OR: relatedOrConditions,
+          },
+          select: { title: true, slug: true },
+          orderBy: { publishedAt: "desc" },
+          take: 4,
+        });
+        for (const art of relatedArticles) {
+          internalLinks.push({ text: art.title, url: `/bai-viet/${art.slug}` });
+        }
+      }
+
+      const internalLinksBlock =
+        internalLinks.length > 0
+          ? internalLinks.slice(0, 5).map((l) => `- [${l.text}](${l.url})`).join("\n")
+          : `- [Xem thêm sách hay](/sach/${mainBook?.slug || ""})`;
 
       const systemPrompt = `Bạn là Trưởng ban Biên tập sách cao cấp.
 Nhiệm vụ: Cải thiện và viết lại bài review sau để ĐẠT 100 ĐIỂM Content Quality Checklist.
@@ -96,15 +131,15 @@ ${failedReasons || "Cần nâng cấp độ sâu và từ vựng."}
 
 BẮT BUỘC tuân thủ Content Quality Checklist:
 - Tối thiểu 1.500 từ thực chất, sâu sắc, không lan man
-- PHẢI có đúng 6 heading sau:
-  ## Sách nói về điều gì?
+- PHẢI có đúng 6 heading theo thứ tự sau (đúng chính xác cụm từ):
+  ## Sách nói về gì?
   ## Góc nhìn sau khi đọc — Đánh giá chi tiết
   ## Ai nên đọc cuốn sách này?
   ## Ai không nên đọc?
   ## Điểm hạn chế cần cân nhắc
   ## Nên mua nếu / Chưa nên mua nếu
 - PHẢI dùng "tôi" hoặc "chúng tôi" ít nhất 3 lần
-- PHẢI có ít nhất 2 internal link markdown: [mô tả](/bai-viet/... hoặc /sach/... hoặc /noi-dau/...)
+- PHẢI chèn ít nhất 2 internal link markdown từ danh sách gợi ý bên dưới
 - PHẢI có chi tiết cụ thể: số trang, tên chương, số liệu, năm xuất bản
 - PHẢI đề cập nỗi đau của đối tượng trong 200 chữ ĐẦU TIÊN
 - KHÔNG dùng cụm sáo rỗng: "trong thời đại ngày nay", "không thể phủ nhận rằng", "chìa khóa thành công", "hãy cùng khám phá", "đắm chìm", "hành trình khám phá", "tóm lại"
@@ -118,7 +153,7 @@ Trả về JSON:
   "seoDescription": "...",
   "verdictScore": 4.5,
   "verdictSummary": "...",
-  "content": "## Sách nói về điều gì?\\n\\n...",
+  "content": "## Sách nói về gì?\\n\\n...",
   "faqs": [
     { "question": "...", "answer": "..." },
     { "question": "...", "answer": "..." },
@@ -138,8 +173,8 @@ Nỗi đau hướng tới: ${article.painPoints.map((p) => p.name).join(", ")}
 Nội dung hiện tại (hãy mở rộng, nâng cấp toàn diện):
 ${article.content.slice(0, 2000)}
 
-Internal links gợi ý chèn vào bài:
-${painPointLinks || `[Xem thêm sách hay](/sach/${mainBook?.slug || ""})`}`;
+Internal links GỢI Ý — BẮT BUỘC chèn ít nhất 2 trong số này vào content:
+${internalLinksBlock}`;
 
       const completion = await client.chat.completions.create({
         model,
@@ -167,6 +202,42 @@ ${painPointLinks || `[Xem thêm sách hay](/sach/${mainBook?.slug || ""})`}`;
       const faqData = (output.faqs || []).filter((f) => f.question && f.answer);
       const sourceData = (output.sources || []).filter((s) => s.label);
 
+      // --- Fix: Bút danh biên tập — resolve persona nếu bài chưa có ---
+      const needsAuthor = !article.authorName?.trim() || !article.authorSlug?.trim();
+      const personaData = needsAuthor
+        ? articleAuthorData(
+            resolveEditorialPersona({
+              articleType: article.type,
+              painPointNames: article.painPoints.map((p) => p.name),
+              audienceNames: article.audiences.map((a) => a.name),
+              categoryNames: article.categories.map((c) => c.name),
+            }),
+          )
+        : {};
+
+      // --- Fix: Content cluster — resolve nếu bài chưa có clusterId ---
+      let resolvedClusterId: string | null | undefined = undefined;
+      if (!article.clusterId) {
+        const clusterOr: Array<Record<string, unknown>> = [];
+        if (article.painPoints.length) {
+          clusterOr.push({ painPointId: { in: article.painPoints.map((p) => p.id) } });
+        }
+        if (article.categories.length) {
+          clusterOr.push({ categoryId: { in: article.categories.map((c) => c.id) } });
+        }
+        if (article.audiences.length) {
+          clusterOr.push({ audienceId: { in: article.audiences.map((a) => a.id) } });
+        }
+        if (clusterOr.length) {
+          const cluster = await prisma.contentCluster.findFirst({
+            where: { OR: clusterOr },
+            orderBy: { updatedAt: "desc" },
+            select: { id: true },
+          });
+          if (cluster) resolvedClusterId = cluster.id;
+        }
+      }
+
       // Cập nhật bài viết
       await prisma.article.update({
         where: { id: article.id },
@@ -177,6 +248,10 @@ ${painPointLinks || `[Xem thêm sách hay](/sach/${mainBook?.slug || ""})`}`;
           verdictScore: output.verdictScore ?? article.verdictScore,
           verdictSummary: output.verdictSummary || article.verdictSummary,
           readingTime: Math.max(1, Math.round(output.content.split(" ").length / 200)),
+          // Fix: bút danh biên tập
+          ...personaData,
+          // Fix: content cluster
+          ...(resolvedClusterId !== undefined ? { clusterId: resolvedClusterId } : {}),
         },
       });
 

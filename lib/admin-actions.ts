@@ -26,6 +26,7 @@ import { hashIp } from "@/lib/hash";
 import { slugify } from "@/lib/slugify";
 import { getArticleQualitySummary } from "@/lib/content-quality";
 import { notifySearchEngines } from "@/lib/indexing";
+import { autoFetchAndSaveGoogleBookCover } from "@/lib/google-books";
 
 const optionalUrlSchema = z
   .string()
@@ -281,6 +282,76 @@ export async function deleteBookAction(formData: FormData) {
   await prisma.book.delete({ where: { id } });
   revalidateAdmin();
   redirectWithSuccess("/admin/books", "Đã xóa sách.");
+}
+
+export async function fetchGoogleBookCoverForBookAction(formData: FormData) {
+  await requireAdmin();
+  const id = requiredId(formData);
+  const book = await prisma.book.findUnique({ where: { id } });
+  if (!book) {
+    redirectWithError("/admin/books", "Không tìm thấy sách.");
+  }
+
+  const { coverImage, bookInfo } = await autoFetchAndSaveGoogleBookCover(
+    book.title,
+    book.author,
+    book.slug,
+  );
+
+  if (!coverImage) {
+    redirectWithError(`/admin/books/${id}/edit`, "Không tìm thấy ảnh trên Google Books.");
+  }
+
+  await prisma.book.update({
+    where: { id },
+    data: {
+      coverImage,
+      publisher: book.publisher || bookInfo?.publisher || null,
+    },
+  });
+
+  revalidateAdmin();
+  redirectWithSuccess(`/admin/books/${id}/edit`, "Đã lấy ảnh bìa từ Google Books và lưu về VPS thành công.");
+}
+
+export async function batchFetchMissingBookCoversAction() {
+  await requireAdmin();
+  const missingBooks = await prisma.book.findMany({
+    where: {
+      OR: [{ coverImage: null }, { coverImage: "" }],
+    },
+    take: 15,
+  });
+
+  if (!missingBooks.length) {
+    redirectWithSuccess("/admin/books", "Tất cả sách đều đã có ảnh bìa.");
+  }
+
+  let updatedCount = 0;
+  for (const book of missingBooks) {
+    const { coverImage, bookInfo } = await autoFetchAndSaveGoogleBookCover(
+      book.title,
+      book.author,
+      book.slug,
+    );
+
+    if (coverImage) {
+      await prisma.book.update({
+        where: { id: book.id },
+        data: {
+          coverImage,
+          publisher: book.publisher || bookInfo?.publisher || null,
+        },
+      });
+      updatedCount++;
+    }
+  }
+
+  revalidateAdmin();
+  redirectWithSuccess(
+    "/admin/books",
+    `Đã tự động tìm và cập nhật ảnh bìa cho ${updatedCount}/${missingBooks.length} sách từ Google Books.`,
+  );
 }
 
 export async function createArticleAction(formData: FormData) {

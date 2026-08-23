@@ -16,6 +16,7 @@ import { requireAdmin } from "@/lib/auth";
 import {
   analyzeShopeeReviews,
   type ContentMemoryExample,
+  type InternalLinkSuggestion,
   DeepSeekConfigError,
   extractBookFactsFromSources,
   generateAutopilotArticle,
@@ -30,6 +31,7 @@ import { slugify } from "@/lib/slugify";
 import { resolveVoiceTone } from "@/lib/voice-tones";
 import { getArticleQualitySummary } from "@/lib/content-quality";
 import { notifySearchEngines } from "@/lib/indexing";
+import { autoFetchAndSaveGoogleBookCover } from "@/lib/google-books";
 
 const optionalUrl = z
   .string()
@@ -230,14 +232,17 @@ export async function runAiAutopilotAction(formData: FormData) {
     const status = input.intent === "draft" ? ArticleStatus.DRAFT : ArticleStatus.REVIEW;
     const slug = await uniqueArticleSlug(articleOutput.slug || articleOutput.title);
     const scheduledAt = null;
+    const clusterId = await resolveClusterId(input, bookData);
 
     const article = await prisma.article.create({
       data: {
         reviewInsightId: reviewInsight?.id,
+        clusterId,
         title: articleOutput.title,
         slug,
         excerpt: articleOutput.excerpt,
         content: articleOutput.contentMarkdown,
+        coverImage: book.coverImage || null,
         type: ArticleType.REVIEW,
         status,
         seoTitle: articleOutput.seoTitle,
@@ -692,6 +697,7 @@ async function generateArticlePayload(
     ],
   });
   const contentMemory = await buildContentMemory(input, bookData);
+  const internalLinkSuggestions = await buildInternalLinkSuggestions(input, bookData);
 
   const raw = await generateAutopilotArticle({
     bookTitle: input.bookTitle,
@@ -711,6 +717,7 @@ async function generateArticlePayload(
     audienceName: audience?.name,
     tone: resolvedTone,
     contentMemory,
+    internalLinkSuggestions,
   });
 
   const article = parseArticleOutput(raw, input.bookTitle);
@@ -965,6 +972,18 @@ async function upsertBookFromAutopilot(input: AutopilotForm, bookData: BookData)
   });
 
   if (existing) {
+    let coverImage = existing.coverImage;
+    if (!coverImage) {
+      const googleRes = await autoFetchAndSaveGoogleBookCover(
+        title,
+        bookData.author || input.author,
+        existing.slug,
+      );
+      if (googleRes.coverImage) {
+        coverImage = googleRes.coverImage;
+      }
+    }
+
     return prisma.book.update({
       where: { id: existing.id },
       data: {
@@ -974,6 +993,7 @@ async function upsertBookFromAutopilot(input: AutopilotForm, bookData: BookData)
             : existing.author,
         publisher: existing.publisher || bookData.publisher || input.publisher || null,
         description: existing.description || fallbackDescription(title, bookData),
+        coverImage: coverImage || null,
         shopeeAffiliateUrl: existing.shopeeAffiliateUrl || input.affiliateUrl || null,
         status: BookStatus.ACTIVE,
         pros: existing.pros.length ? existing.pros : cleanArray(bookData.pros).slice(0, 6),
@@ -994,13 +1014,21 @@ async function upsertBookFromAutopilot(input: AutopilotForm, bookData: BookData)
     });
   }
 
+  const slug = await uniqueBookSlug(title);
+  const googleRes = await autoFetchAndSaveGoogleBookCover(
+    title,
+    bookData.author || input.author,
+    slug,
+  );
+
   return prisma.book.create({
     data: {
       title,
-      slug: await uniqueBookSlug(title),
+      slug,
       author: bookData.author || input.author || "Không rõ",
-      publisher: nullable(bookData.publisher || input.publisher),
+      publisher: nullable(bookData.publisher || input.publisher || googleRes.bookInfo?.publisher),
       description: fallbackDescription(title, bookData),
+      coverImage: googleRes.coverImage || null,
       shopeeAffiliateUrl: nullable(input.affiliateUrl),
       status: BookStatus.ACTIVE,
       pros: cleanArray(bookData.pros).slice(0, 6),
@@ -1610,6 +1638,87 @@ function fallbackDescription(title: string, bookData: BookData) {
     bookData.description ||
     `Dữ liệu sách ${title} được tổng hợp từ AI Autopilot và cần admin rà soát trước khi xuất bản.`
   );
+}
+
+async function resolveClusterId(input: AutopilotForm, bookData: BookData) {
+  // Ưu tiên: painPointId → categoryId → audienceId → match bằng name từ bookData
+  const [painPoints, categories, audiences] = await Promise.all([
+    prisma.painPoint.findMany({ select: { id: true, name: true, slug: true } }),
+    prisma.category.findMany({ select: { id: true, name: true, slug: true } }),
+    prisma.audience.findMany({ select: { id: true, name: true, slug: true } }),
+  ]);
+
+  const painPointIds = uniqueStrings([
+    input.painPointId,
+    ...matchTaxonomyIds(bookData.painPointNames, painPoints),
+  ]);
+  const categoryIds = uniqueStrings([
+    input.categoryId,
+    ...matchTaxonomyIds(bookData.categoryNames, categories),
+  ]);
+  const audienceIds = uniqueStrings([
+    input.audienceId,
+    ...matchTaxonomyIds(bookData.audienceNames, audiences),
+  ]);
+
+  const orConditions: Array<Record<string, unknown>> = [];
+  if (painPointIds.length) orConditions.push({ painPointId: { in: painPointIds } });
+  if (categoryIds.length) orConditions.push({ categoryId: { in: categoryIds } });
+  if (audienceIds.length) orConditions.push({ audienceId: { in: audienceIds } });
+
+  if (!orConditions.length) return null;
+
+  const cluster = await prisma.contentCluster.findFirst({
+    where: { OR: orConditions },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true },
+  });
+
+  return cluster?.id ?? null;
+}
+
+async function buildInternalLinkSuggestions(
+  input: AutopilotForm,
+  bookData: BookData,
+): Promise<InternalLinkSuggestion[]> {
+  const suggestions: InternalLinkSuggestion[] = [];
+
+  // 1. Pain point pages
+  const painPoints = await prisma.painPoint.findMany({
+    where: input.painPointId
+      ? { id: input.painPointId }
+      : bookData.painPointNames.length
+        ? { name: { in: bookData.painPointNames, mode: "insensitive" } }
+        : undefined,
+    select: { name: true, slug: true },
+    take: 3,
+  });
+  for (const pp of painPoints) {
+    suggestions.push({ text: `Sách hay về chủ đề ${pp.name}`, url: `/noi-dau/${pp.slug}` });
+  }
+
+  // 2. Related published articles (cùng pain point / category / audience)
+  const relatedOrConditions: Array<Record<string, unknown>> = [];
+  if (input.painPointId) relatedOrConditions.push({ painPoints: { some: { id: input.painPointId } } });
+  if (input.categoryId) relatedOrConditions.push({ categories: { some: { id: input.categoryId } } });
+  if (input.audienceId) relatedOrConditions.push({ audiences: { some: { id: input.audienceId } } });
+
+  if (relatedOrConditions.length) {
+    const relatedArticles = await prisma.article.findMany({
+      where: {
+        status: ArticleStatus.PUBLISHED,
+        OR: relatedOrConditions,
+      },
+      select: { title: true, slug: true },
+      orderBy: { publishedAt: "desc" },
+      take: 4,
+    });
+    for (const art of relatedArticles) {
+      suggestions.push({ text: art.title, url: `/bai-viet/${art.slug}` });
+    }
+  }
+
+  return suggestions.slice(0, 5);
 }
 
 function cleanArray(items: string[]) {
