@@ -275,7 +275,7 @@ export async function runAiAutopilotAction(formData: FormData) {
                 bookId: book.id,
                 label: `Xem giá ${book.title}`,
                 destinationUrl: input.affiliateUrl,
-                trackingSlug: await uniqueTrackingSlug(`ai-${slug}`),
+                trackingSlug: await uniqueTrackingSlug(`ai-${slug}-${Date.now().toString(36).slice(-4)}`),
                 isActive: true,
               },
             }
@@ -1404,7 +1404,7 @@ async function ensureBookAffiliateLink(
       bookId,
       label: `Xem giá ${title}`,
       destinationUrl,
-      trackingSlug: await uniqueTrackingSlug(`book-${slug}`),
+      trackingSlug: await uniqueTrackingSlug(`book-${slug}-${Date.now().toString(36).slice(-4)}`),
       isActive: true,
     },
   });
@@ -1531,33 +1531,44 @@ function summarizeMarkdown(markdown: string) {
 }
 
 async function uniqueArticleSlug(input: string) {
-  const base = slugify(input) || `ai-review-${Date.now()}`;
+  const clean = slugify(input).slice(0, 100);
+  const base = clean || `ai-review-${Date.now().toString(36)}`;
   let candidate = base;
   let suffix = 2;
 
   while (await prisma.article.findUnique({ where: { slug: candidate }, select: { id: true } })) {
-    candidate = `${base}-${suffix}`;
+    candidate = `${base.slice(0, 90)}-${suffix}`;
     suffix += 1;
+    if (suffix > 20) {
+      candidate = `${base.slice(0, 80)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      break;
+    }
   }
 
   return candidate;
 }
 
 async function uniqueBookSlug(input: string) {
-  const base = slugify(input) || `book-${Date.now()}`;
+  const clean = slugify(input).slice(0, 100);
+  const base = clean || `book-${Date.now().toString(36)}`;
   let candidate = base;
   let suffix = 2;
 
   while (await prisma.book.findUnique({ where: { slug: candidate }, select: { id: true } })) {
-    candidate = `${base}-${suffix}`;
+    candidate = `${base.slice(0, 90)}-${suffix}`;
     suffix += 1;
+    if (suffix > 20) {
+      candidate = `${base.slice(0, 80)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      break;
+    }
   }
 
   return candidate;
 }
 
 async function uniqueTrackingSlug(input: string) {
-  const base = slugify(input) || `ai-${Date.now()}`;
+  const clean = slugify(input).slice(0, 80);
+  const base = clean || `ai-${Date.now().toString(36)}`;
   let candidate = base;
   let suffix = 2;
 
@@ -1567,8 +1578,12 @@ async function uniqueTrackingSlug(input: string) {
       select: { id: true },
     })
   ) {
-    candidate = `${base}-${suffix}`;
+    candidate = `${base.slice(0, 70)}-${suffix}`;
     suffix += 1;
+    if (suffix > 20) {
+      candidate = `${base.slice(0, 60)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+      break;
+    }
   }
 
   return candidate;

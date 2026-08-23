@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 interface ImageUploadFieldProps {
   name: string;
@@ -16,14 +16,27 @@ export function ImageUploadField({
   placeholder = "https://example.com/image.jpg",
 }: ImageUploadFieldProps) {
   const [url, setUrl] = useState(currentValue || "");
+  const [localBlobUrl, setLocalBlobUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    return () => {
+      if (localBlobUrl) URL.revokeObjectURL(localBlobUrl);
+    };
+  }, [localBlobUrl]);
 
   const uploadFile = useCallback(async (file: File) => {
     setUploading(true);
     setError(null);
+    setSuccessMsg(null);
+
+    // Tạo preview ngay lập tức từ file local
+    const blob = URL.createObjectURL(file);
+    setLocalBlobUrl(blob);
 
     try {
       const formData = new FormData();
@@ -42,8 +55,9 @@ export function ImageUploadField({
       }
 
       setUrl(data.url);
+      setSuccessMsg(`Đã upload thành công lên VPS (${(file.size / 1024).toFixed(0)} KB)`);
     } catch {
-      setError("Lỗi kết nối. Kiểm tra lại mạng và thử lại.");
+      setError("Lỗi kết nối khi tải ảnh lên VPS. Kiểm tra lại mạng.");
     } finally {
       setUploading(false);
     }
@@ -68,7 +82,13 @@ export function ImageUploadField({
 
   const handleDragLeave = () => setIsDragging(false);
 
-  const hasPreview = url && (url.startsWith("/") || url.startsWith("http"));
+  const displayImageSrc = localBlobUrl || url;
+  const hasPreview = Boolean(
+    displayImageSrc &&
+      (displayImageSrc.startsWith("blob:") ||
+        displayImageSrc.startsWith("/") ||
+        displayImageSrc.startsWith("http")),
+  );
 
   return (
     <div className="space-y-2">
@@ -79,24 +99,50 @@ export function ImageUploadField({
 
       {/* Preview ảnh hiện tại */}
       {hasPreview && (
-        <div className="relative overflow-hidden rounded-2xl border border-stone-200 bg-stone-50">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={url}
-            alt="Preview ảnh bìa"
-            className="h-40 w-full object-cover"
-            onError={(e) => {
-              (e.target as HTMLImageElement).style.display = "none";
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => setUrl("")}
-            className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-stone-900/70 text-xs text-white hover:bg-rose-600 transition"
-            title="Xóa ảnh"
-          >
-            ✕
-          </button>
+        <div className="relative overflow-hidden rounded-2xl border border-stone-200 bg-stone-100 p-2">
+          <div className="relative flex h-48 w-full items-center justify-center overflow-hidden rounded-xl bg-white">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={displayImageSrc}
+              alt="Preview ảnh bìa"
+              className="h-full w-full object-contain"
+              onError={(e) => {
+                // Nếu load URL từ server bị lỗi nhưng có blob thì giữ blob
+                if (localBlobUrl) {
+                  (e.target as HTMLImageElement).src = localBlobUrl;
+                }
+              }}
+            />
+          </div>
+
+          <div className="mt-2 flex items-center justify-between px-1 text-xs">
+            <span className="truncate font-mono text-stone-500 max-w-[240px]">
+              {url || "Đang tải lên..."}
+            </span>
+            <div className="flex items-center gap-2">
+              {url && (
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-amber-800 hover:underline"
+                >
+                  🔗 Mở ảnh gốc
+                </a>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setUrl("");
+                  setLocalBlobUrl(null);
+                  setSuccessMsg(null);
+                }}
+                className="font-medium text-rose-600 hover:underline"
+              >
+                ✕ Xóa
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -123,7 +169,7 @@ export function ImageUploadField({
         {uploading ? (
           <div className="flex flex-col items-center gap-2">
             <div className="h-6 w-6 animate-spin rounded-full border-2 border-amber-800 border-t-transparent" />
-            <p className="text-xs text-stone-500">Đang tải ảnh lên VPS...</p>
+            <p className="text-xs text-stone-500">Đang lưu ảnh vào thư mục trên VPS...</p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-1.5">
@@ -134,7 +180,7 @@ export function ImageUploadField({
               Kéo thả ảnh vào đây hoặc{" "}
               <span className="text-amber-800 underline">chọn từ máy tính</span>
             </p>
-            <p className="text-[11px] text-stone-400">JPG, PNG, WebP · Tối đa 5MB · Lưu trên VPS</p>
+            <p className="text-[11px] text-stone-400">JPG, PNG, WebP · Tối đa 5MB · Tự động lưu trên VPS</p>
           </div>
         )}
       </div>
@@ -142,17 +188,27 @@ export function ImageUploadField({
       {/* Hoặc nhập URL trực tiếp */}
       <div className="flex items-center gap-2">
         <div className="h-px flex-1 bg-stone-200" />
-        <span className="text-[11px] text-stone-400">hoặc nhập URL trực tiếp</span>
+        <span className="text-[11px] text-stone-400">hoặc dán URL ảnh trực tiếp</span>
         <div className="h-px flex-1 bg-stone-200" />
       </div>
 
       <input
         type="text"
         value={url}
-        onChange={(e) => setUrl(e.target.value)}
+        onChange={(e) => {
+          setUrl(e.target.value);
+          setLocalBlobUrl(null);
+          setSuccessMsg(null);
+        }}
         placeholder={placeholder}
         className="w-full rounded-2xl border border-stone-300 px-4 py-3 text-sm outline-none transition focus:border-amber-700 focus:ring-4 focus:ring-amber-100"
       />
+
+      {successMsg && (
+        <p className="flex items-center gap-1.5 rounded-xl bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+          <span>✓</span> {successMsg}
+        </p>
+      )}
 
       {error && (
         <p className="flex items-center gap-1.5 rounded-xl bg-rose-50 px-3 py-2 text-xs font-medium text-rose-700">
