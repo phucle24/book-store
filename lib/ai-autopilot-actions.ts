@@ -31,7 +31,6 @@ import { slugify } from "@/lib/slugify";
 import { resolveVoiceTone } from "@/lib/voice-tones";
 import { getArticleQualitySummary } from "@/lib/content-quality";
 import { notifySearchEngines } from "@/lib/indexing";
-import { autoFetchAndSaveGoogleBookCover } from "@/lib/google-books";
 
 const optionalUrl = z
   .string()
@@ -242,7 +241,6 @@ export async function runAiAutopilotAction(formData: FormData) {
         slug,
         excerpt: articleOutput.excerpt,
         content: articleOutput.contentMarkdown,
-        coverImage: book.coverImage || null,
         type: ArticleType.REVIEW,
         status,
         seoTitle: articleOutput.seoTitle,
@@ -972,18 +970,6 @@ async function upsertBookFromAutopilot(input: AutopilotForm, bookData: BookData)
   });
 
   if (existing) {
-    let coverImage = existing.coverImage;
-    if (!coverImage) {
-      const googleRes = await autoFetchAndSaveGoogleBookCover(
-        title,
-        bookData.author || input.author,
-        existing.slug,
-      );
-      if (googleRes.coverImage) {
-        coverImage = googleRes.coverImage;
-      }
-    }
-
     return prisma.book.update({
       where: { id: existing.id },
       data: {
@@ -993,7 +979,6 @@ async function upsertBookFromAutopilot(input: AutopilotForm, bookData: BookData)
             : existing.author,
         publisher: existing.publisher || bookData.publisher || input.publisher || null,
         description: existing.description || fallbackDescription(title, bookData),
-        coverImage: coverImage || null,
         shopeeAffiliateUrl: existing.shopeeAffiliateUrl || input.affiliateUrl || null,
         status: BookStatus.ACTIVE,
         pros: existing.pros.length ? existing.pros : cleanArray(bookData.pros).slice(0, 6),
@@ -1014,21 +999,13 @@ async function upsertBookFromAutopilot(input: AutopilotForm, bookData: BookData)
     });
   }
 
-  const slug = await uniqueBookSlug(title);
-  const googleRes = await autoFetchAndSaveGoogleBookCover(
-    title,
-    bookData.author || input.author,
-    slug,
-  );
-
   return prisma.book.create({
     data: {
       title,
-      slug,
+      slug: await uniqueBookSlug(title),
       author: bookData.author || input.author || "Không rõ",
-      publisher: nullable(bookData.publisher || input.publisher || googleRes.bookInfo?.publisher),
+      publisher: nullable(bookData.publisher || input.publisher),
       description: fallbackDescription(title, bookData),
-      coverImage: googleRes.coverImage || null,
       shopeeAffiliateUrl: nullable(input.affiliateUrl),
       status: BookStatus.ACTIVE,
       pros: cleanArray(bookData.pros).slice(0, 6),

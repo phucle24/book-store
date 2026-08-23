@@ -66,8 +66,6 @@ export function AdminBookForm({
             name="coverImage"
             currentValue={book?.coverImage}
             placeholder="https://example.com/cover.jpg"
-            bookTitle={book?.title}
-            bookAuthor={book?.author}
           />
         </div>
       </section>

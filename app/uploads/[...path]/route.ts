@@ -16,8 +16,8 @@ const MIME_TYPES: Record<string, string> = {
 
 /**
  * GET /uploads/[...path]
- * Phục vụ trực tiếp tất cả các file ảnh tải lên tại runtime trên VPS.
- * Đảm bảo Next.js production và Next.js Image Optimization không bao giờ bị lỗi 404.
+ * Phục vụ trực tiếp tất cả file ảnh upload lúc runtime trên VPS.
+ * Khắc phục triệt để lỗi Next.js Production chỉ serve file tĩnh có sẵn lúc build.
  */
 export async function GET(
   _request: Request,
@@ -37,7 +37,7 @@ export async function GET(
       return new Response("Forbidden", { status: 403 });
     }
 
-    // Tìm kiếm file trong public/uploads hoặc uploads
+    // Tìm file trong public/uploads hoặc uploads
     const candidatePaths = [
       join(process.cwd(), "public", "uploads", safePath),
       join(process.cwd(), "uploads", safePath),
@@ -60,7 +60,6 @@ export async function GET(
 
     const ext = extname(targetFile).toLowerCase();
     const contentType = MIME_TYPES[ext] || "application/octet-stream";
-
     const buffer = await readFile(targetFile);
 
     return new Response(buffer, {

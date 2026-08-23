@@ -3,11 +3,7 @@ import { AdminNotice } from "@/components/AdminNotice";
 import { AdminShell } from "@/components/AdminShell";
 import { EmptyState } from "@/components/EmptyState";
 import { StatusBadge } from "@/components/StatusBadge";
-import {
-  deleteBookAction,
-  batchFetchMissingBookCoversAction,
-  fetchGoogleBookCoverForBookAction,
-} from "@/lib/admin-actions";
+import { deleteBookAction } from "@/lib/admin-actions";
 import { requireAdmin } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -66,17 +62,6 @@ export default async function AdminBooksPage({
           <p className="mt-1 text-xs text-stone-500">
             Bổ sung link ảnh bìa sắc nét để bài review và trang sách hiển thị đẹp hơn.
           </p>
-          {booksWithMissingCover > 0 && (
-            <form action={batchFetchMissingBookCoversAction} className="mt-3">
-              <button
-                type="submit"
-                className="inline-flex items-center gap-1.5 rounded-full bg-stone-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow hover:bg-amber-900 transition"
-              >
-                <span>⚡</span>
-                <span>Tự động tải {booksWithMissingCover} ảnh bìa từ Google Books</span>
-              </button>
-            </form>
-          )}
         </div>
       </div>
 
@@ -121,21 +106,9 @@ export default async function AdminBooksPage({
                             ✓ Đã có ảnh
                           </span>
                         ) : (
-                          <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
-                              ○ Thiếu ảnh
-                            </span>
-                            <form action={fetchGoogleBookCoverForBookAction}>
-                              <input type="hidden" name="id" value={book.id} />
-                              <button
-                                type="submit"
-                                title="Tìm & tải ảnh từ Google Books về VPS"
-                                className="rounded-full bg-stone-100 border border-stone-200 px-2 py-0.5 text-[11px] font-semibold text-stone-700 hover:bg-amber-100 hover:text-amber-900 hover:border-amber-300 transition"
-                              >
-                                🔍 Lấy ảnh
-                              </button>
-                            </form>
-                          </div>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">
+                            ○ Thiếu ảnh
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-4">

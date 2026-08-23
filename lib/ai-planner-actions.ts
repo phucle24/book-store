@@ -9,7 +9,6 @@ import { requireAdmin } from "@/lib/auth";
 import { DeepSeekConfigError } from "@/lib/deepseek";
 import { notifySearchEngines } from "@/lib/indexing";
 import { ALL_THEME_SLUGS } from "@/lib/quote-themes";
-import { autoFetchAndSaveGoogleBookCover } from "@/lib/google-books";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -421,11 +420,10 @@ async function writeAndScheduleArticle(item: PlanItem): Promise<string> {
     } else {
       // 🌟 TẠO SÁCH MỚI HOÀN TOÀN VÀO CƠ SỞ DỮ LIỆU
       const bookSlug = await uniqueBookSlug(item.bookTitle);
-      const [matchedCategories, matchedPainPoints, matchedAudiences, googleCover] = await Promise.all([
+      const [matchedCategories, matchedPainPoints, matchedAudiences] = await Promise.all([
         matchTaxonomyRecords("category", item.categoryNames || []),
         matchTaxonomyRecords("painPoint", item.painPointNames || []),
         matchTaxonomyRecords("audience", item.audienceNames || []),
-        autoFetchAndSaveGoogleBookCover(item.bookTitle, item.author, bookSlug),
       ]);
 
       book = await prisma.book.create({
@@ -434,8 +432,6 @@ async function writeAndScheduleArticle(item: PlanItem): Promise<string> {
           slug: bookSlug,
           author: item.author || "Không rõ",
           description: item.bookDescription || `Sách ${item.bookTitle} của tác giả ${item.author}.`,
-          coverImage: googleCover.coverImage || null,
-          publisher: googleCover.bookInfo?.publisher || null,
           pros: (item.pros || []).slice(0, 6),
           cons: (item.cons || []).slice(0, 6),
           keyLessons: (item.keyLessons || []).slice(0, 6),
@@ -584,7 +580,6 @@ ${painPointLinks || `[Xem sách ${book.title}](/sach/${book.slug || ""})`}
       slug,
       excerpt: output.excerpt || "",
       content: output.content,
-      coverImage: book.coverImage || null,
       type: ArticleType.REVIEW,
       status: ArticleStatus.SCHEDULED,
       seoTitle: output.seoTitle || output.title,
