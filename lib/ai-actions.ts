@@ -8,6 +8,7 @@ import { requireAdmin } from "@/lib/auth";
 import { readingTimeFromMarkdown } from "@/lib/markdown";
 import { prisma } from "@/lib/prisma";
 import { slugify } from "@/lib/slugify";
+import { articleAuthorData, resolveEditorialPersona } from "@/lib/editorial-personas";
 
 const draftFromAiSchema = z.object({
   generationId: z.string().min(1, "Thiếu generation ID."),
@@ -53,6 +54,13 @@ export async function createArticleDraftFromAiAction(formData: FormData) {
   }
 
   try {
+    const articleAuthor = articleAuthorData(
+      resolveEditorialPersona({
+        articleType: data.type as ArticleType,
+        bookSignals: [data.title, data.focusKeyword || "", data.excerpt || ""],
+      }),
+    );
+
     const article = await prisma.article.create({
       data: {
         title: data.title,
@@ -64,6 +72,7 @@ export async function createArticleDraftFromAiAction(formData: FormData) {
         seoTitle: nullable(data.seoTitle),
         seoDescription: nullable(data.seoDescription),
         focusKeyword: nullable(data.focusKeyword),
+        ...articleAuthor,
         readingTime: readingTimeFromMarkdown(data.content),
         categories: {
           connect: selectedIds(formData, "categoryIds").map((id) => ({ id })),

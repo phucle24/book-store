@@ -66,49 +66,65 @@ export function resolveEditorialPersona({
   const has = (patterns: string[]) =>
     signals.some((signal) => patterns.some((pattern) => signal.includes(pattern)));
 
+  // An Nhiên: Tâm lý học, overthinking, góc nhìn sâu sắc, triết lý sống
+  if (
+    has([
+      "overthinking",
+      "huong-noi",
+      "tam-ly",
+      "thieu-tu-tin",
+      "dam-bi-ghet",
+      "dech-quan-tam",
+      "triet-ly",
+      "noi-tam",
+    ])
+  ) {
+    return editorialPersonas[2];
+  }
+
+  // Linh An: Cảm xúc, mất phương hướng, chữa lành, tổn thương, burnout
+  if (
+    has([
+      "chua-lanh",
+      "ton-thuong",
+      "bon-thoa-uoc",
+      "mat-phuong-huong",
+      "burnout",
+      "co-don",
+      "sau-chia-tay",
+      "van-hoc-chua-lanh",
+      "cam-xuc",
+    ])
+  ) {
+    return editorialPersonas[0];
+  }
+
+  // Hà My: Sinh viên, người mới đi làm, động viên, cú hích nhỏ
+  if (has(["doi-ngan", "cu-hich", "sinh-vien", "nguoi-moi-di-lam", "giao-vien"])) {
+    return editorialPersonas[3];
+  }
+
+  // Minh Quân: Kỹ năng, tài chính, công việc, thói quen, kỷ luật, top-list
   if (
     articleType === ArticleType.GUIDE ||
+    articleType === ArticleType.TOP_LIST ||
     has([
       "tai-chinh",
       "kinh-doanh",
-      "ky-nang",
+      "tien",
+      "thoi-quen",
       "tri-hoan",
       "thieu-ky-luat",
       "giao-tiep",
       "cong-so",
       "cong-viec",
       "dac-nhan-tam",
+      "cha-giau",
+      "nghi-giau",
+      "ky-nang",
     ])
   ) {
     return editorialPersonas[1];
-  }
-
-  if (has(["doi-ngan", "cu-hich"])) {
-    return editorialPersonas[3];
-  }
-
-  if (
-    has([
-      "mat-phuong-huong",
-      "burnout",
-      "co-don",
-      "sau-chia-tay",
-      "van-hoc-chua-lanh",
-    ])
-  ) {
-    return editorialPersonas[0];
-  }
-
-  if (articleType === ArticleType.TOP_LIST) {
-    return editorialPersonas[1];
-  }
-
-  if (has(["sinh-vien", "nguoi-moi-di-lam", "giao-vien"])) {
-    return editorialPersonas[3];
-  }
-
-  if (has(["overthinking", "huong-noi", "tam-ly", "thieu-tu-tin", "dam-bi-ghet"])) {
-    return editorialPersonas[2];
   }
 
   return editorialPersonas[0];

@@ -4,6 +4,7 @@ import { ArticleStatus, BookStatus, ArticleBookRole, Prisma } from "@prisma/clie
 import { prisma } from "@/lib/prisma";
 import { notifySearchEngines } from "@/lib/indexing";
 import { ALL_THEME_SLUGS } from "@/lib/quote-themes";
+import { articleAuthorData, resolveEditorialPersona } from "@/lib/editorial-personas";
 import OpenAI from "openai";
 
 export const dynamic = "force-dynamic";
@@ -292,6 +293,16 @@ ${painPointLinks || `[Xem sách ${book.title}](/sach/${book.slug || ""})`}
           });
         }
 
+        const articleAuthor = articleAuthorData(
+          resolveEditorialPersona({
+            articleType: "REVIEW",
+            categoryNames: book.categories.map((c) => c.name),
+            painPointNames: book.painPoints.map((p) => p.name),
+            audienceNames: book.audiences.map((a) => a.name),
+            bookSignals: [book.title, book.author, item.focusKeyword, output.title, output.excerpt || ""],
+          }),
+        );
+
         await prisma.article.create({
           data: {
             title: output.title,
@@ -303,6 +314,7 @@ ${painPointLinks || `[Xem sách ${book.title}](/sach/${book.slug || ""})`}
             seoTitle: output.seoTitle || output.title,
             seoDescription: output.seoDescription || output.excerpt || "",
             focusKeyword: item.focusKeyword,
+            ...articleAuthor,
             verdictScore: output.verdictScore ?? null,
             verdictSummary: output.verdictSummary || null,
             readingTime: Math.max(1, Math.round(output.content.split(" ").length / 200)),

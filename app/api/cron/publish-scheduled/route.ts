@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { ArticleStatus } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { articleAuthorData, resolveEditorialPersona } from "@/lib/editorial-personas";
 
 export const dynamic = "force-dynamic";
 
@@ -31,11 +32,37 @@ export async function POST(request: Request) {
       status: ArticleStatus.SCHEDULED,
       scheduledAt: { lte: now },
     },
-    select: { id: true, publishedAt: true },
+    include: {
+      categories: { select: { name: true } },
+      painPoints: { select: { name: true } },
+      audiences: { select: { name: true } },
+      books: { include: { book: { select: { title: true } } } },
+    },
   });
 
   if (!scheduledArticles.length) {
     return NextResponse.json({ published: 0 });
+  }
+
+  // Tự động gán bút danh biên tập nếu bài viết chưa có trước khi publish
+  for (const article of scheduledArticles) {
+    if (!article.authorName || !article.authorSlug) {
+      const persona = resolveEditorialPersona({
+        articleType: article.type,
+        categoryNames: article.categories.map((c) => c.name),
+        painPointNames: article.painPoints.map((p) => p.name),
+        audienceNames: article.audiences.map((a) => a.name),
+        bookSignals: [
+          article.books[0]?.book?.title || "",
+          article.title,
+          article.focusKeyword || "",
+        ],
+      });
+      await prisma.article.update({
+        where: { id: article.id },
+        data: articleAuthorData(persona),
+      });
+    }
   }
 
   const ids = scheduledArticles.map((article) => article.id);

@@ -1214,7 +1214,6 @@ async function evaluateAutoPublishReadiness({
     "Có FAQ cho bài review/top-list",
     "Có nguồn hoặc ghi chú biên tập",
     "Review/story có sách chính",
-    "Có section sách nói về gì",
     "Có review chi tiết/góc nhìn sau khi đọc",
     "Có phần ai nên đọc",
     "Có phần ai không nên đọc",

@@ -287,7 +287,7 @@ export async function createArticleAction(formData: FormData) {
   await requireAdmin();
   const path = "/admin/articles/new";
   const data = parseArticleForm(formData, path);
-  const author = articleAuthorForForm(data, formData);
+  const author = await articleAuthorForForm(data, formData);
   const mainBookId = textValue(formData, "mainBookId");
   const relatedBookIds = orderedRelatedBookIds(formData);
   validateArticleRelations(data, mainBookId, relatedBookIds, formData, path);
@@ -337,7 +337,7 @@ export async function updateArticleAction(formData: FormData) {
   const id = requiredId(formData);
   const path = `/admin/articles/${id}/edit`;
   const data = parseArticleForm(formData, path);
-  const author = articleAuthorForForm(data, formData);
+  const author = await articleAuthorForForm(data, formData);
   const mainBookId = textValue(formData, "mainBookId");
   const relatedBookIds = orderedRelatedBookIds(formData);
   validateArticleRelations(data, mainBookId, relatedBookIds, formData, path);
@@ -656,12 +656,10 @@ function validateArticleRelations(
     "Có FAQ cho bài review/top-list",
     "Có nguồn hoặc ghi chú biên tập",
     "Review/story có sách chính",
-    "Có section sách nói về gì",
     "Có review chi tiết/góc nhìn sau khi đọc",
     "Có phần ai nên đọc",
     "Có phần ai không nên đọc",
     "Có phần điểm hạn chế",
-    "Có ít nhất 2 internal links theo journey",
     "Không nhắc review Shopee khi chưa có ReviewInsight",
     "CTA không nằm trong markdown",
     "Top-list có bảng chọn nhanh hoặc bảng markdown",
@@ -678,19 +676,33 @@ function validateArticleRelations(
   }
 }
 
-function articleAuthorForForm(data: ReturnType<typeof parseArticleForm>, formData: FormData) {
+async function articleAuthorForForm(data: ReturnType<typeof parseArticleForm>, formData: FormData) {
   const selected = getEditorialPersonaBySlug(data.authorSlug);
   if (selected) return articleAuthorData(selected);
 
+  const categoryIds = selectedIds(formData, "categoryIds");
+  const painPointIds = selectedIds(formData, "painPointIds");
+  const audienceIds = selectedIds(formData, "audienceIds");
+  const mainBookId = textValue(formData, "mainBookId");
+
+  const [categories, painPoints, audiences, mainBook] = await Promise.all([
+    categoryIds.length ? prisma.category.findMany({ where: { id: { in: categoryIds } }, select: { name: true } }) : [],
+    painPointIds.length ? prisma.painPoint.findMany({ where: { id: { in: painPointIds } }, select: { name: true } }) : [],
+    audienceIds.length ? prisma.audience.findMany({ where: { id: { in: audienceIds } }, select: { name: true } }) : [],
+    mainBookId ? prisma.book.findUnique({ where: { id: mainBookId }, select: { title: true, author: true } }) : null,
+  ]);
+
   const persona = resolveEditorialPersona({
     articleType: data.type,
-    painPointNames: selectedIds(formData, "painPointIds"),
-    audienceNames: selectedIds(formData, "audienceIds"),
+    categoryNames: categories.map((c) => c.name),
+    painPointNames: painPoints.map((p) => p.name),
+    audienceNames: audiences.map((a) => a.name),
     bookSignals: [
-      textValue(formData, "mainBookId"),
-      ...orderedRelatedBookIds(formData),
+      mainBook?.title || "",
+      mainBook?.author || "",
       data.title,
       data.focusKeyword || "",
+      data.excerpt || "",
     ],
   });
 

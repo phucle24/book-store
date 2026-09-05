@@ -30,7 +30,7 @@ export function BookCover({
         alt={`Bìa sách ${title}`}
         fill
         priority={priority}
-        unoptimized={coverImage.startsWith("/uploads/")}
+        unoptimized={coverImage.startsWith("/uploads/") || coverImage.includes("susercontent.com")}
         sizes="(min-width: 1024px) 280px, (min-width: 640px) 220px, 35vw"
         className={`object-cover ${imageClassName}`}
       />
