@@ -161,14 +161,6 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
       severity: "required",
     },
     {
-      label: "Có section sách nói về gì",
-      ok:
-        type === ArticleType.TOP_LIST ||
-        contentLower.includes("sách nói về gì") ||
-        contentLower.includes("cuốn sách nói về"),
-      severity: "warning",
-    },
-    {
       label: "Có review chi tiết/góc nhìn sau khi đọc",
       ok:
         type === ArticleType.TOP_LIST ||
@@ -200,12 +192,6 @@ export function getArticleQualityChecks(article?: ContentQualityArticle) {
     {
       label: "Có internal link trong markdown",
       ok: internalLinkCount > 0,
-      severity: "warning",
-      meta: `${internalLinkCount} link`,
-    },
-    {
-      label: "Có ít nhất 2 internal links theo journey",
-      ok: internalLinkCount >= 2,
       severity: "warning",
       meta: `${internalLinkCount} link`,
     },

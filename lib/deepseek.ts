@@ -129,7 +129,7 @@ const sharedRules = [
   "Không bịa đã đọc sách nếu dữ liệu không có.",
   "Không dùng câu “cuốn sách này sẽ thay đổi cuộc đời bạn”.",
   "Không quảng cáo quá đà.",
-  "BẮT BUỘC: H2 đầu tiên trong content PHẢI là “## Sách nói về gì?” (đúng chính xác cụm từ này, không thay thế bằng câu khác).",
+  "Nên có phần tóm lược ngắn gọn cuốn sách nói về điều gì.",
   "Luôn có phần review chi tiết về sách: đánh giá sau khi đọc, điểm chạm với người đọc, điểm đáng tin, điểm cần cân nhắc.",
   "Luôn có phần “Điểm hạn chế”.",
   "Luôn có phần “Ai nên đọc” và “Ai không nên đọc”.",
@@ -181,7 +181,7 @@ ${contentTypeGuidelines(input)}
 Yêu cầu:
 - H2/H3 rõ.
 - Có intro bằng tình huống đời thường.
-- Có phần Sách nói về gì.
+- Có phần tóm lược cuốn sách.
 - Có phần Review chi tiết: cuốn sách này đáng ở điểm nào.
   Phần này cần có góc nhìn đánh giá sau khi đọc, không chỉ tóm tắt nội dung.
 - Có phần Ai nên đọc.
@@ -214,7 +214,7 @@ Yêu cầu bắt buộc:
 - Giọng văn ấm, từng trải, không quảng cáo.
 - Mở đầu bằng tình huống đời thường.
 - Có H2/H3 rõ.
-- Có phần sách nói về gì.
+- Có phần tóm lược cuốn sách.
 - Có H2 “Review chi tiết: cuốn sách này đáng ở điểm nào?”.
 - Trong phần review chi tiết, viết như một người đọc kỹ và đã suy ngẫm: đánh giá cách sách triển khai ý, điểm chạm cảm xúc, điểm hữu ích thật sự, điểm có thể khiến người đọc chưa thỏa mãn.
 - Nếu có dữ liệu review người mua trong extraNotes, kết hợp thành nhận xét tổng hợp như “điều nhiều người thường thích/cân nhắc”, không copy hoặc quote review.
@@ -248,7 +248,7 @@ Mục tiêu:
 - Giữ ý chính, làm giọng văn ấm và có chiều sâu hơn.
 - Giảm câu quảng cáo, giảm khẳng định quá đà.
 - Bổ sung hoặc làm sâu phần “Review chi tiết: cuốn sách này đáng ở điểm nào?” với góc nhìn đánh giá sau khi đọc.
-- Bổ sung “Sách nói về gì”, “Điểm hạn chế”, “Ai nên đọc”, “Ai không nên đọc” nếu thiếu.
+- Bổ sung phần tóm lược sách, “Điểm hạn chế”, “Ai nên đọc”, “Ai không nên đọc” nếu thiếu.
 - Sắp xếp hoặc bổ sung H2 “Nên đọc cuốn này như thế nào” ở cuối content nếu thiếu.
 - Loại bỏ CTA mua sách hoặc link affiliate khỏi markdown; layout website sẽ hiển thị CTA riêng ở cuối bài.
 - Không bịa trải nghiệm đã đọc nếu verifiedRead không phải true.
@@ -357,7 +357,7 @@ Yêu cầu bài viết:
 - Có SEO title.
 - Có meta description.
 - Không chèn CTA mua sách hoặc link affiliate trong contentMarkdown.
-- Content phải có phần sách nói về gì, review chi tiết, ai nên đọc, ai không nên đọc, điểm hạn chế.
+- Content phải có phần tóm lược sách, review chi tiết, ai nên đọc, ai không nên đọc, điểm hạn chế.
 - Phần review chi tiết phải có H2 đúng: “Review chi tiết: cuốn sách này đáng ở điểm nào?”.
 - Content phải kết thúc bằng H2 “Nên đọc cuốn này như thế nào”.
 - Phần review chi tiết cần kết hợp insight từ review người mua thành nhận xét tổng hợp: điểm thường được thích, điều còn lăn tăn, lý do mua. Không quote review, không nêu tên người mua.
@@ -530,7 +530,7 @@ Yêu cầu:
 - 1400-2200 từ.
 - Mở đầu bằng hook đời thường 150-250 chữ trước H2 đầu tiên.
 - Có H2/H3 rõ.
-- Có phần "Sách nói về gì".
+- Có phần tóm lược cuốn sách.
 - Có H2 đúng: "Review chi tiết: cuốn sách này đáng ở điểm nào?".
 - Có phần "Ai nên đọc" và "Ai không nên đọc".
 - Có phần "Điểm hạn chế".

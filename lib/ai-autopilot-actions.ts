@@ -449,7 +449,7 @@ export async function improveAutopilotArticleAction(formData: FormData) {
     "Nếu content đang có section FAQ trong markdown, hãy bỏ section đó khỏi markdown vì website đã render FAQ riêng.",
     "Không quote trực tiếp từ sách, tác giả, review hoặc nguồn research; chỉ diễn giải bằng lời riêng.",
     "Không chèn CTA hoặc affiliate link trong markdown; layout website đã có CTA cuối bài.",
-    "Giữ các section chính: Sách nói về gì, Review chi tiết, Ai nên đọc, Ai không nên đọc, Điểm hạn chế, Nên đọc cuốn này như thế nào.",
+    "Giữ các section chính: Review chi tiết, Ai nên đọc, Ai không nên đọc, Điểm hạn chế, Nên đọc cuốn này như thế nào.",
     "Không quote nguồn hoặc review người mua. Chỉ dùng nguồn làm nền insight.",
     run.warnings.length ? `Cảnh báo từ research run: ${run.warnings.join("; ")}` : "",
     sourceNotes ? `Nguồn/signal đã dùng:\n${sourceNotes}` : "",
@@ -1442,7 +1442,7 @@ function parseArticleOutput(output: string, bookTitle: string) {
       focusKeyword: extractLooseStringField(cleaned, "focusKeyword") || bookTitle,
       contentMarkdown:
         content ||
-        `## Sách nói về gì\n\n${bookTitle} cần được admin kiểm tra lại vì AI trả output chưa đúng JSON.\n\n## Nên đọc cuốn này như thế nào\n\nHãy đọc chậm và đối chiếu với nhu cầu thật của bạn.`,
+        `## Tổng quan sách\n\n${bookTitle} cần được admin kiểm tra lại vì AI trả output chưa đúng JSON.\n\n## Nên đọc cuốn này như thế nào\n\nHãy đọc chậm và đối chiếu với nhu cầu thật của bạn.`,
       faqs: extractLooseFaqs(cleaned),
       warnings: [
         "AI trả về JSON chưa hợp lệ; hệ thống đã fallback parse để giữ bài viết.",

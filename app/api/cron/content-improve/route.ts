@@ -131,15 +131,15 @@ ${failedReasons || "Cần nâng cấp độ sâu và từ vựng."}
 
 BẮT BUỘC tuân thủ Content Quality Checklist:
 - Tối thiểu 1.500 từ thực chất, sâu sắc, không lan man
-- PHẢI có đúng 6 heading theo thứ tự sau (đúng chính xác cụm từ):
-  ## Sách nói về gì?
+- PHẢI có các heading rõ ràng phân tách các phần:
+  ## Tổng quan sách
   ## Góc nhìn sau khi đọc — Đánh giá chi tiết
   ## Ai nên đọc cuốn sách này?
   ## Ai không nên đọc?
   ## Điểm hạn chế cần cân nhắc
   ## Nên mua nếu / Chưa nên mua nếu
 - PHẢI dùng "tôi" hoặc "chúng tôi" ít nhất 3 lần
-- PHẢI chèn ít nhất 2 internal link markdown từ danh sách gợi ý bên dưới
+- PHẢI chèn ít nhất 1-2 internal link markdown từ danh sách gợi ý bên dưới
 - PHẢI có chi tiết cụ thể: số trang, tên chương, số liệu, năm xuất bản
 - PHẢI đề cập nỗi đau của đối tượng trong 200 chữ ĐẦU TIÊN
 - KHÔNG dùng cụm sáo rỗng: "trong thời đại ngày nay", "không thể phủ nhận rằng", "chìa khóa thành công", "hãy cùng khám phá", "đắm chìm", "hành trình khám phá", "tóm lại"
@@ -153,7 +153,7 @@ Trả về JSON:
   "seoDescription": "...",
   "verdictScore": 4.5,
   "verdictSummary": "...",
-  "content": "## Sách nói về gì?\\n\\n...",
+  "content": "## Tổng quan sách\\n\\n...",
   "faqs": [
     { "question": "...", "answer": "..." },
     { "question": "...", "answer": "..." },
